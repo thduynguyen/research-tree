@@ -1,0 +1,84 @@
+import { useEffect, useRef, useState } from 'react';
+import { isBusy, sendMessage, stop, useLive } from '../chat';
+import { keyedProviders } from '../providers';
+import { DEMO_MODEL, defaultModel, useSettings } from '../settings';
+import type { ModelRef, ProviderId, TreeNode } from '../types';
+
+const encode = (m: ModelRef) => `${m.provider}|${m.model}`;
+const decode = (v: string): ModelRef => {
+  const i = v.indexOf('|');
+  return { provider: v.slice(0, i) as ProviderId, model: v.slice(i + 1) };
+};
+
+export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean }) {
+  const settings = useSettings();
+  useLive();
+  const busy = isBusy(node.id);
+  const [text, setText] = useState('');
+  const [picked, setPicked] = useState<ModelRef | null>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (autoFocus) input.current?.focus();
+  }, [autoFocus]);
+
+  const usable = (m?: ModelRef | null) => !!m && (m.provider === 'demo' || !!settings.keys[m.provider]);
+  const model = (usable(picked) ? picked : usable(node.model) ? node.model : defaultModel())!;
+
+  const send = () => {
+    const value = text.trim();
+    if (!value || busy) return;
+    setText('');
+    void sendMessage(node.id, value, model);
+  };
+
+  return (
+    <form
+      className="composer"
+      onSubmit={(e) => {
+        e.preventDefault();
+        send();
+      }}
+    >
+      <textarea
+        ref={input}
+        aria-label="Message"
+        rows={2}
+        value={text}
+        placeholder={node.parentId ? 'Ask in this branch' : 'Ask anything'}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            send();
+          }
+        }}
+      />
+      <div className="composer-row">
+        <select aria-label="Model" value={encode(model)} onChange={(e) => setPicked(decode(e.target.value))}>
+          {keyedProviders.map((p) =>
+            settings.keys[p.id] ? (
+              <optgroup key={p.id} label={p.label}>
+                {(settings.models[p.id] ?? []).map((m) => (
+                  <option key={m.id} value={encode({ provider: p.id, model: m.id })}>
+                    {m.id}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null,
+          )}
+          <option value={encode(DEMO_MODEL)}>Demo (no AI)</option>
+        </select>
+        {busy ? (
+          <button type="button" className="btn" onClick={() => stop(node.id)}>
+            Stop
+          </button>
+        ) : (
+          <button type="submit" className="btn primary" disabled={!text.trim()}>
+            Send
+          </button>
+        )}
+      </div>
+    </form>
+  );
+}
