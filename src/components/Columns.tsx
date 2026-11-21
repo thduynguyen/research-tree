@@ -430,7 +430,7 @@ export function Columns() {
     const request = ws.focus;
     if (!request || handled.current === request.n) return;
     // Asking for the root while it is tucked away slides it out.
-    if (request.id === ws.trail[0].id && !rootPinned && !narrowWindow) {
+    if (request.id === ws.trail[0].id && !rootPinned && !narrowWindow && !ws.trail[0].web) {
       handled.current = request.n;
       setRootPeek(true);
       return;
@@ -476,7 +476,11 @@ export function Columns() {
   const column = (depth: number) => (depth === 0 ? rootColumn(false) : <Level info={ws.levels[depth - 1]} />);
 
   // A phone has room for one column, so there the root is simply the first of them.
-  const depths = [...(narrowWindow ? [0] : []), ...ws.levels.map((l) => l.depth)];
+  // A web page read as a trail of pages is laid out the same way: its first page is one of the
+  // columns, so that each page opened from a link takes the larger share and the one before it the
+  // smaller, with earlier ones moving out of view.
+  const trailing = narrowWindow || !!root.web;
+  const depths = [...(trailing ? [0] : []), ...ws.levels.map((l) => l.depth)];
   const rootShown = rootPinned || rootPeek;
   // A PDF needs room to be read: its root column starts at 60% of the width, and keeps its own size.
   // Something to read (a PDF, a web page, code) gets the wider share by default; a conversation does not.
@@ -486,7 +490,7 @@ export function Columns() {
 
   return (
     <div className="stage" ref={stage}>
-      {!narrowWindow && (
+      {!trailing && (
         <div className={rootPinned ? 'root-slot pinned' : 'root-slot'}>
           <div
             className={`root-col${rootShown ? '' : ' rail-only'}${!rootPinned && rootPeek ? ' floating' : ''}`}

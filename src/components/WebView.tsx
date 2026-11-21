@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { db, putNode, putSession } from '../db';
 import { fetchPage } from '../folder';
 import { locate, pdfUrlOf } from '../text';
@@ -65,9 +66,9 @@ interface Props {
 
 /**
  * A web page to read, shown as it looks on its site. It can be highlighted,
- * annotated and asked about like a PDF. A link is followed in the panel, with
- * back and forward; once the page has marks it stays, and a link opens as a
- * branch from it. A link to a PDF opens in the PDF reader.
+ * annotated and asked about like a PDF. A clicked link asks where to open:
+ * here, replacing the page (with back and forward); beside it, as a branch from
+ * the link; or in the reader's own browser.
  */
 export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
   const ws = useWorkspace();
@@ -103,17 +104,27 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
       if (session) await putSession({ ...session, title: next });
     }
   };
-  /**
-   * Follows a link. A page with nothing marked on it is replaced in place. A page with marks stays:
-   * the linked page opens as a branch from the link, or, if this session already has it, is gone to.
-   */
-  const follow = (next: string, link?: { start: number; end: number; quote: string }) => {
-    const there = [...ws.idx.byId.values()].find((n) => n.id !== node.id && n.web?.url === next && (n.parentId === node.id || n.id === node.parentId));
+  /** Opens a linked page beside this one, as a branch from the link; a branch already made for it is gone to. */
+  const openBranch = (next: string, link: { start: number; end: number; quote: string }) => {
+    const pdf = pdfUrlOf(next) ?? (/\.pdf($|[?#])/i.test(next) ? next : null);
+    const there = [...ws.idx.byId.values()].find((n) => n.parentId === node.id && (n.web?.url === next || (!!pdf && n.doc?.url === pdf)));
     if (there) return ws.select(there.id, { focus: true });
-    if (!marks.length) return void show(next);
-    if (link) return void ws.branch(node.id, WEB_KEY, link.start, link.end, link.quote, { web: { url: next } });
-    window.open(next, '_blank', 'noopener');
+    void ws.branch(node.id, WEB_KEY, link.start, link.end, link.quote, pdf ? { doc: { fingerprint: '', title: link.quote.trim() || pdf, url: pdf, pages: 0 } } : { web: { url: next } });
   };
+  // The choices offered for a link that was clicked.
+  const [menu, setMenu] = useState<{ href: string; x: number; y: number; link?: { start: number; end: number; quote: string } } | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !(e.target as Element | null)?.closest?.('.link-menu')) setMenu(null);
+    };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', close);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', close);
+    };
+  }, [menu]);
   const parent = node.parentId ? ws.idx.byId.get(node.parentId) : undefined;
   const step = (by: number) => {
     const t = trail.current;
@@ -124,8 +135,8 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
     t.at = at;
     void show(t.list[at], false);
   };
-  const handlers = useRef({ onOpen, onHighlight, onHover, ws, node, follow });
-  handlers.current = { onOpen, onHighlight, onHover, ws, node, follow };
+  const handlers = useRef({ onOpen, onHighlight, onHover, ws, node, setMenu });
+  handlers.current = { onOpen, onHighlight, onHover, ws, node, setMenu };
 
   useEffect(() => {
     if (!url) return;
@@ -223,28 +234,25 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
         target?.scrollIntoView({ block: 'start' });
         return;
       }
-      // A link to a PDF opens in the PDF reader, as a branch from the link.
-      const pdf = pdfUrlOf(link.href) ?? (/\.pdf($|[?#])/i.test(link.href) ? link.href : null);
-      const quote = link.textContent ?? '';
-      if (pdf && quote.trim()) {
-        e.preventDefault();
-        const there = [...h.ws.idx.byId.values()].find((n) => n.parentId === h.node.id && n.doc?.url === pdf);
-        if (there) return h.ws.select(there.id, { focus: true });
-        const before = doc.createRange();
-        before.selectNodeContents(body);
-        before.setEndBefore(link);
-        const start = before.toString().length;
-        void h.ws.branch(h.node.id, WEB_KEY, start, start + quote.length, quote, { doc: { fingerprint: '', title: quote.trim() || pdf, url: pdf, pages: 0 } });
-      }
-      // Any other link is followed here. With Cmd, Ctrl or Shift held it opens in the reader's own browser, as the page's base says.
-      if (pdf || e.metaKey || e.ctrlKey || e.shiftKey || !/^https?:/.test(link.href)) return;
+      // With Cmd, Ctrl or Shift held, the link opens in the reader's own browser, as the page's base says.
+      if (e.metaKey || e.ctrlKey || e.shiftKey || !/^https?:/.test(link.href)) return;
+      // Otherwise the reader is asked where to open it.
       e.preventDefault();
+      const quote = link.textContent ?? '';
       const before = doc.createRange();
       before.selectNodeContents(body);
       before.setEndBefore(link);
       const start = before.toString().length;
-      h.follow(link.href.split('#')[0] === here ? link.href : link.href, quote.trim() ? { start, end: start + quote.length, quote } : undefined);
+      const at = shifted(link.getBoundingClientRect());
+      h.setMenu({
+        href: link.href,
+        x: Math.min(Math.max(at.left, 8), window.innerWidth - 240),
+        y: Math.min(at.bottom + 4, window.innerHeight - 170),
+        link: quote.trim() ? { start, end: start + quote.length, quote } : undefined,
+      });
     });
+    // Clicking or scrolling in the page puts the menu away.
+    doc.addEventListener('mousedown', () => handlers.current.setMenu(null));
     doc.addEventListener('mouseover', (e) => {
       const mark = markOf(e.target);
       if (mark && !mark.classList.contains('detached')) handlers.current.onHover((mark.dataset.hl ?? mark.dataset.child)!, shifted(mark.getBoundingClientRect()));
@@ -313,6 +321,58 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
           <button type="submit" className="btn primary">Open</button>
         </form>
       )}
+      {menu &&
+        createPortal(
+          <div className="link-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
+            <button
+              type="button"
+              role="menuitem"
+              autoFocus={!marks.length}
+              disabled={marks.length > 0}
+              title={marks.length ? 'This page has highlights, notes or conversations, so it stays as it is' : 'Replace this page with the linked one; Back returns'}
+              onClick={() => {
+                setMenu(null);
+                void show(menu.href);
+              }}
+            >
+              Open here
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              autoFocus={marks.length > 0}
+              disabled={!menu.link}
+              title="Keep this page, and open the linked one beside it as a branch from the link"
+              onClick={() => {
+                setMenu(null);
+                if (menu.link) openBranch(menu.href, menu.link);
+              }}
+            >
+              Open as a branch
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                window.open(menu.href, '_blank', 'noopener');
+              }}
+            >
+              Open in a browser tab
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                window.open(menu.href, '_blank', 'noopener,popup,width=1200,height=900');
+              }}
+            >
+              Open in a browser window
+            </button>
+          </div>,
+          document.body,
+        )}
       {status && <div className="hint" role="status">{status}</div>}
       {page && (
         <iframe
