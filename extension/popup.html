@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Read in Research Tree</title>
+<style>
+  body { font: 13px system-ui, sans-serif; margin: 0; width: 260px; color: #16181d; background: #fff; }
+  h1 { font-size: 12px; font-weight: 600; margin: 0; padding: 10px 12px 6px; color: #565d6b; }
+  ul { list-style: none; margin: 0; padding: 0 4px 6px; max-height: 360px; overflow-y: auto; }
+  button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  button:hover, button:focus-visible { background: #e9edfc; outline: 0; }
+  span { flex: none; font-size: 11px; color: #565d6b; }
+  p { margin: 0; padding: 10px 12px; color: #565d6b; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1f2229; color: #e6e8ec; }
+    h1, span, p { color: #a3a9b6; }
+    button:hover, button:focus-visible { background: #2c3350; }
+  }
+</style>
+</head>
+<body>
+  <h1>Read this page in</h1>
+  <ul id="list"></ul>
+  <p id="note" hidden></p>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

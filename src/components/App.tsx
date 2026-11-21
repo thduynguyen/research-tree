@@ -392,16 +392,30 @@ export function App() {
   // A page sent from the reader's browser opens as a session: a PDF in the PDF reader, anything
   // else as a web page to read. It arrives in the address, as "?open=<address>" when the app is
   // opened for it, or as "#open=<address>" when it is handed to a tab already showing the app.
+  // The browser extension offers the projects to choose from, and marks the one each tab is on:
+  // it reads them from here.
+  useEffect(() => {
+    try {
+      localStorage.setItem('rt.projects', JSON.stringify((projects ?? []).filter((p) => !p.deleted).map((p) => ({ id: p.id, name: p.name }))));
+      sessionStorage.setItem('rt.project', session?.projectId ?? 'none');
+    } catch {
+      // Without storage the extension only lacks the list.
+    }
+  }, [projects, session?.projectId]);
   const receiver = useRef({ workspace, projectId: session?.projectId });
   receiver.current = { workspace, projectId: session?.projectId };
   const ready = !!workspace;
   useEffect(() => {
     if (!ready) return;
     const receive = () => {
-      const address = new URLSearchParams(location.search).get('open') ?? new URLSearchParams(location.hash.slice(1)).get('open');
+      const given = new URLSearchParams(location.search).has('open') ? new URLSearchParams(location.search) : new URLSearchParams(location.hash.slice(1));
+      const address = given.get('open');
       if (!address) return;
+      // The sender may name the project; "none" is the sessions outside any. Without one, it is this tab's.
+      const named = given.get('project');
       window.history.replaceState(null, '', location.pathname);
-      const { workspace: ws, projectId } = receiver.current;
+      const { workspace: ws, projectId: here } = receiver.current;
+      const projectId = named === null ? here : named === 'none' ? undefined : named;
       if (!ws || !/^https?:\/\//i.test(address)) return;
       const pdf = pdfUrlOf(address) ?? (/\.pdf($|[?#])/i.test(address) ? address : null);
       void createSession(projectId, pdf ? { fingerprint: '', title: pdf, url: pdf, pages: 0 } : undefined, pdf ? undefined : { title: 'Web page', web: { url: address } }).then((made) =>
