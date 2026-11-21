@@ -86,3 +86,29 @@ export function findAll(text: string, query: string, limit = 2000): [number, num
   }
   return out;
 }
+
+/**
+ * How well a file's path matches what was typed, or -1 when it does not: every
+ * typed letter must appear in order; letters in the file's own name, at the
+ * start of a word, and next to each other count for more.
+ */
+export function fuzzyScore(path: string, typed: string): number {
+  const text = path.toLowerCase();
+  const query = typed.toLowerCase().replace(/\s+/g, '');
+  if (!query) return 0;
+  const nameAt = text.lastIndexOf('/') + 1;
+  let score = 0;
+  let from = 0;
+  let last = -2;
+  for (const ch of query) {
+    const at = text.indexOf(ch, from);
+    if (at < 0) return -1;
+    score += 1;
+    if (at === last + 1) score += 3;
+    if (at >= nameAt) score += 2;
+    if (at === 0 || '/._-'.includes(text[at - 1])) score += 3;
+    last = at;
+    from = at + 1;
+  }
+  return score - text.length / 200;
+}

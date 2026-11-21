@@ -9,7 +9,7 @@ import { basicSetup } from 'codemirror';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { putNode } from '../db';
 import { listRoot, readWorkspaceFile, saveWorkspaceFile, type WorkspaceFile } from '../folder';
-import { locate } from '../text';
+import { fuzzyScore, locate } from '../text';
 import type { TreeNode } from '../types';
 import type { Mark } from './MessageBody';
 import { FRAME_SELECTION } from './SelectionPopover';
@@ -20,32 +20,6 @@ const TREE_KEY = 'rt.codeTree';
 /** Marks on a file's text are filed under this key, one per file. */
 export const codeKey = (path: string) => `code:${path}`;
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
-
-/**
- * How well a file's path matches what was typed, or -1 when it does not: every
- * typed letter must appear in order; letters in the file's own name, at the
- * start of a word, and next to each other count for more.
- */
-export function fuzzyScore(path: string, typed: string): number {
-  const text = path.toLowerCase();
-  const query = typed.toLowerCase().replace(/\s+/g, '');
-  if (!query) return 0;
-  const nameAt = text.lastIndexOf('/') + 1;
-  let score = 0;
-  let from = 0;
-  let last = -2;
-  for (const ch of query) {
-    const at = text.indexOf(ch, from);
-    if (at < 0) return -1;
-    score += 1;
-    if (at === last + 1) score += 3;
-    if (at >= nameAt) score += 2;
-    if (at === 0 || '/._-'.includes(text[at - 1])) score += 3;
-    last = at;
-    from = at + 1;
-  }
-  return score - text.length / 200;
-}
 
 /** Finds a file by a few letters of its name, as editors do with their "go to file" box. */
 function Palette({ files, onPick, onClose }: { files: WorkspaceFile[]; onPick: (file: WorkspaceFile) => void; onClose: () => void }) {

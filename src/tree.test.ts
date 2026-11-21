@@ -359,7 +359,7 @@ describe('folder storage', () => {
   });
 });
 
-import { fuzzyScore } from './components/CodeView';
+import { fuzzyScore } from './text';
 
 describe('go to file', () => {
   const rank = (typed: string, paths: string[]) => paths.filter((p) => fuzzyScore(p, typed) >= 0).sort((a, b) => fuzzyScore(b, typed) - fuzzyScore(a, typed));
