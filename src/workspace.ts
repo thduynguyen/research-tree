@@ -77,6 +77,7 @@ export interface Workspace {
   setColor(nodeId: string, color: string): Promise<void>;
   /** Sets how much of the paper this conversation sends with each message. */
   setScope(nodeId: string, scope: DocScope): Promise<void>;
+  setAccess(nodeId: string, access: string): Promise<void>;
   /** Records what a PDF node turned out to be once its file has been loaded. */
   setDoc(nodeId: string, doc: DocRef): Promise<void>;
   /** Deletes a branch for good, with every branch, message and highlight under it. */

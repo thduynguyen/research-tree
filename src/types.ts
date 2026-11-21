@@ -87,6 +87,11 @@ export interface TreeNode {
    */
   scope?: DocScope;
   /**
+   * What the model may do on the user's computer in this conversation, when the
+   * server offers a choice. Absent means the least: answer only.
+   */
+  access?: string;
+  /**
    * Present (possibly empty) when the node is a written annotation rather than
    * a chat thread: Markdown with LaTeX math, and no model involved.
    */

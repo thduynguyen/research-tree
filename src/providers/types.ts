@@ -11,6 +11,8 @@ export interface StreamRequest {
   model: ModelInfo;
   system: string;
   turns: ChatTurn[];
+  /** Extra fields for the request body, for servers that understand them. */
+  extra?: Record<string, unknown>;
   signal: AbortSignal;
   onText: (delta: string) => void;
 }

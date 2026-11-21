@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { db, putMessage, putNode, putSession, uid } from './db';
 import { providers } from './providers';
-import { findModel, getSettings, updateSettings } from './settings';
+import { findModel, getSettings, isReady, updateSettings } from './settings';
 import { SYSTEM_PROMPT, buildContext, buildIndex, shorten } from './tree';
 import type { Message, ModelRef } from './types';
 
@@ -78,12 +78,23 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
     const turns = buildContext(index, nodeId, (print) => texts.get(print), node.scope ?? 'paper');
     const provider = providers[model.provider];
     const key = getSettings().keys[model.provider] ?? '';
-    if (model.provider !== 'demo' && !key) throw new Error(`No ${provider.label} key. Add one in Settings.`);
+    if (!isReady(getSettings(), model.provider)) throw new Error(`${provider.label} is not set up. Add it in Settings.`);
+    // A local server that can work in a folder is told how far it may go, and in which project's folder.
+    let extra: Record<string, unknown> | undefined;
+    const levels = model.provider === 'custom' ? getSettings().custom?.levels ?? [] : [];
+    if (node.access && node.access !== 'ask' && levels.includes(node.access)) {
+      let root = node;
+      for (let up = root.parentId ? index.byId.get(root.parentId) : undefined; up; up = up.parentId ? index.byId.get(up.parentId) : undefined) root = up;
+      const session = (await db.sessions.filter((s) => s.rootNodeId === root.id && !s.deleted).first()) ?? undefined;
+      const project = session?.projectId ? await db.projects.get(session.projectId) : undefined;
+      extra = { research_tree: { level: node.access, folder: project?.name ?? 'Inbox' } };
+    }
     await provider.stream({
       key,
       model: findModel(model),
       system: SYSTEM_PROMPT,
       turns,
+      extra,
       signal: controller.signal,
       onText: (delta) => {
         entry.text += delta;

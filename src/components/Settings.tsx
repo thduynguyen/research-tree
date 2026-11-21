@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { cleanUrl, keyedProviders, providers, type Provider } from '../providers';
+import { accessLevels, cleanUrl, keyedProviders, providers, type Provider } from '../providers';
 import { updateSettings, useSettings, type GithubConfig } from '../settings';
 
 function ProviderCard({ provider }: { provider: Provider }) {
@@ -88,8 +88,9 @@ function CustomCard() {
     updateSettings({ keys, custom: { url: address } });
     try {
       const models = await provider.listModels(key.trim());
-      updateSettings({ models: { ...settings.models, custom: models } });
-      setStatus(`Works · ${models.length} models`);
+      const levels = await accessLevels(address, key.trim());
+      updateSettings({ custom: { url: address, levels }, models: { ...settings.models, custom: models } });
+      setStatus(`Works · ${models.length} models${levels.length > 1 ? ' · can work in a folder on this computer' : ''}`);
     } catch (e) {
       updateSettings(before);
       const message = e instanceof Error ? e.message : String(e);

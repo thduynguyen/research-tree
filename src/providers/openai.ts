@@ -19,12 +19,13 @@ function client(base: () => string, keep: (id: string) => boolean) {
         .map((m) => ({ id: m.id }));
     },
 
-    async stream({ key, model, system, turns, signal, onText }: StreamRequest): Promise<void> {
+    async stream({ key, model, system, turns, extra, signal, onText }: StreamRequest): Promise<void> {
       const res = await fetch(`${base()}/chat/completions`, {
         method: 'POST',
         signal,
         headers: { ...auth(key), 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ...extra,
           model: model.id,
           stream: true,
           // The paper comes first and unchanged in every conversation, which is what automatic prompt caching keys on.
@@ -58,6 +59,20 @@ export const cleanUrl = (url: string) => url.trim().replace(/\/+$/, '');
  * A server the user points the app at: a model running on their own computer
  * (Ollama, LM Studio, llama.cpp) or any other service with OpenAI-format endpoints.
  */
+/**
+ * Some local servers can do more than answer: read a project folder, or change
+ * files and run commands. Such a server lists the levels it offers; others do not answer this.
+ */
+export async function accessLevels(url: string, key: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${cleanUrl(url)}/research-tree`, { headers: auth(key) });
+    const body = res.ok ? await res.json() : null;
+    return Array.isArray(body?.levels) ? body.levels.filter((l: unknown) => typeof l === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 export const custom: Provider = {
   id: 'custom',
   label: 'Local or custom server',

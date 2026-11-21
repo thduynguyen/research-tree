@@ -13,6 +13,6 @@ export const keyedProviders: Provider[] = [gemini, anthropic, openai];
 /** Every provider the model list can offer, once set up. */
 export const realProviders: Provider[] = [...keyedProviders, custom];
 
-export { cleanUrl } from './openai';
+export { accessLevels, cleanUrl } from './openai';
 
 export type { ModelInfo, Provider } from './types';

@@ -237,6 +237,10 @@ export function App() {
         const node = idx.byId.get(nodeId);
         if (node && node.note !== text) await putNode({ ...node, note: text });
       },
+      async setAccess(nodeId, access) {
+        const node = await db.nodes.get(nodeId);
+        if (node) await putNode({ ...node, access });
+      },
       async setScope(nodeId, scope) {
         const node = idx.byId.get(nodeId);
         if (node) await putNode({ ...node, scope });
