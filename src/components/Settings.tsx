@@ -95,7 +95,7 @@ function CustomCard() {
       const message = e instanceof Error ? e.message : String(e);
       setStatus(
         /failed to fetch|networkerror|load failed/i.test(message)
-          ? 'No answer. Check that the server is running, that the address is right, and that it allows requests from this page.'
+          ? 'No answer. Check that the server is running, that the address is right, that it allows requests from this page, and that the browser was allowed to reach it.'
           : `Not accepted: ${message}`,
       );
     } finally {
@@ -158,7 +158,8 @@ export function Settings({ onClose, onPull, onPush, syncStatus }: Props) {
         <h3>Your own server</h3>
         <p className="hint">
           For a model running on your own computer (Ollama, LM Studio, llama.cpp) or any other server that speaks the
-          OpenAI chat format. Give the address that ends in <code>/v1</code>. The server has to allow requests from this page.
+          OpenAI chat format. Give the address that ends in <code>/v1</code>. The server has to allow requests from this page, and the browser
+          may ask once for permission to reach your computer or local network.
         </p>
         <CustomCard />
 
