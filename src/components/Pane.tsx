@@ -5,10 +5,11 @@ import { kindLabel, pathFrom, preview, summarize } from '../tree';
 import { MAX_PINNED, freshNotes, useWorkspace } from '../workspace';
 import { Composer } from './Composer';
 import { LiveTerminal } from './LiveTerminal';
+import { WebView } from './WebView';
 import { IconButton } from './Icon';
 import { MessageBody } from './MessageBody';
 import { HIGHLIGHT_COLORS, MAX_ZOOM, MIN_ZOOM, PdfView } from './PdfView';
-import { NOTE_KEY, highlightKey, pageOf } from '../types';
+import { NOTE_KEY, WEB_KEY, highlightKey, pageOf } from '../types';
 import { pdfUrlOf } from '../pdf';
 
 /**
@@ -96,7 +97,7 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
   };
   const isNote = node.note !== undefined;
   // A conversation can be shrunk to a few lines, like a note, and expanded again.
-  const isChat = !isNote && !node.doc;
+  const isChat = !isNote && !node.doc && !node.web;
   // A terminal panel is a full terminal unless switched to the saved, one-command-at-a-time kind.
   const isTerminal = node.terminal !== undefined;
   const [logMode, setLogMode] = useState(false);
@@ -205,7 +206,7 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
   useEffect(() => {
     const el = scroller.current;
     // A chat follows its newest message; a PDF opens at its first page.
-    if (el && !node.doc) el.scrollTop = el.scrollHeight;
+    if (el && !node.doc && !node.web) el.scrollTop = el.scrollHeight;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, liveLength]);
 
@@ -468,7 +469,9 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
           </button>
         )}
 
-        {!node.doc && !isNote && !mini && messages.length === 0 && (
+        {node.web && <WebView node={node} marks={marksIn(WEB_KEY)} onOpen={openMark} onHighlight={openHighlight} onHover={hoverHighlight} />}
+
+        {!node.doc && !node.web && !isNote && !mini && messages.length === 0 && (
           <p className="hint">
             {node.terminal !== undefined
               ? 'Type a command to run it in the project folder on this computer. Select any output to ask about it in a branch.'

@@ -97,7 +97,7 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
     // The text of any PDF above this node, from this device's copy of the file.
     const texts = new Map<string, string[]>();
     for (let cur = index.byId.get(nodeId); cur; cur = cur.parentId ? index.byId.get(cur.parentId) : undefined) {
-      const print = cur.doc?.fingerprint;
+      const print = cur.doc?.fingerprint ?? (cur.web?.url ? `web:${cur.web.url}` : undefined);
       const text = print ? (await db.files.get(print))?.text : undefined;
       if (print && text) texts.set(print, text);
     }

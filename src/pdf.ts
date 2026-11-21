@@ -1,7 +1,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { db } from './db';
-import { readWorkspaceFile, WORKSPACE } from './folder';
+import { fetchThroughHelper, hasFolder, readWorkspaceFile, WORKSPACE } from './folder';
 import type { DocRef } from './types';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -79,9 +79,15 @@ export async function extractText(pdf: PdfDocument): Promise<string[]> {
  */
 export async function fetchPdf(url: string): Promise<ArrayBuffer> {
   if (url.startsWith(WORKSPACE)) return readWorkspaceFile(url.slice(WORKSPACE.length));
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`The server answered ${res.status}.`);
-  return res.arrayBuffer();
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`The server answered ${res.status}.`);
+    return await res.arrayBuffer();
+  } catch (e) {
+    // Most sites do not let a page read their files; a local server, when there is one, can fetch it instead.
+    if (!hasFolder()) throw e;
+    return fetchThroughHelper(url);
+  }
 }
 
 /** Keeps a copy of the PDF on this device, with its text, so it opens instantly and offline. */

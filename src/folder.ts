@@ -179,6 +179,34 @@ export async function readWorkspaceFile(path: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
+export interface FetchedPage {
+  /** The address after any redirect. */
+  url: string;
+  kind: 'html' | 'text' | 'pdf' | 'other' | 'error';
+  html?: string;
+  type?: string;
+  error?: string;
+}
+
+/** Fetches a web page through the local server, since a page in a browser may not read other sites itself. */
+export const fetchPage = (url: string) => call<FetchedPage>(`web?url=${encodeURIComponent(url)}`);
+
+/** The bytes of a file on the web, fetched the same way: for a PDF whose site does not let a browser page read it. */
+export async function fetchThroughHelper(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(`${cleanUrl(getSettings().custom?.url ?? '')}/research-tree/web?raw=1&url=${encodeURIComponent(url)}`, { headers: termHeaders() });
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `${res.status} from the local server`);
+  return res.arrayBuffer();
+}
+
+export const openInVsCode = (folder: string) => call<{ ok: boolean }>('vscode', { folder });
+
+/** The project a node's session belongs to, if any. */
+export async function projectIdOf(nodeId: string): Promise<string | undefined> {
+  let root = await db.nodes.get(nodeId);
+  while (root?.parentId) root = await db.nodes.get(root.parentId);
+  return root ? (await db.sessions.filter((s) => s.rootNodeId === root!.id && !s.deleted).first())?.projectId : undefined;
+}
+
 /** The name of the folder, in the workspace, of the project a node's session belongs to. */
 export async function projectFolderOf(nodeId: string): Promise<string> {
   let root = await db.nodes.get(nodeId);

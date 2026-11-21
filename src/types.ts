@@ -91,6 +91,8 @@ export interface TreeNode {
    * server offers a choice. Absent means the least: answer only.
    */
   access?: string;
+  /** Present when the node is a web page read in the app. An empty address is a browser not yet pointed anywhere. */
+  web?: { url: string; title?: string };
   /**
    * Present when the node is a terminal: every message is a shell command run
    * on the user's computer, and the reply is its output. Holds the folder the
@@ -157,6 +159,8 @@ export interface DbDump {
 export const pageKey = (n: number) => `pdf${n}`;
 export const pageOf = (messageId: string) => (messageId.startsWith('pdf') ? Number(messageId.slice(3)) : undefined);
 export const NOTE_KEY = 'note';
+/** Marks on a web page are filed under this key, as a note's are under NOTE_KEY. */
+export const WEB_KEY = 'web';
 /** The text a highlight is in, whichever way it was stored. */
 export const highlightKey = (h: Highlight) => h.messageId ?? pageKey(h.page ?? 1);
 

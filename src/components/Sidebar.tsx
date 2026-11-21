@@ -91,6 +91,10 @@ interface Props {
   onPeek: (peek: boolean) => void;
   onNew: (projectId?: string) => void;
   onOpenPdf: (projectId?: string) => void;
+  /** Opens a browser panel; absent when no local server can fetch pages. */
+  onBrowser?: (projectId?: string) => void;
+  /** Opens the project's folder in VS Code; absent without a local server. */
+  onVsCode?: (projectId?: string) => void;
   /** Opens a terminal in the project's folder; absent when no local server offers one. */
   onTerminal?: (projectId?: string) => void;
   /** Creates the project and returns its id. */
@@ -363,6 +367,12 @@ export function Sidebar(p: Props) {
               <span className="twisty-gap" aria-hidden="true">+</span>
               <span className="tree-label">Open a PDF</span>
             </button>
+            {p.onBrowser && (
+              <button className="tree-row new-session" onClick={() => p.onBrowser!(project?.id)}>
+                <span className="twisty-gap" aria-hidden="true">+</span>
+                <span className="tree-label">Browser</span>
+              </button>
+            )}
             {p.onTerminal && (
               <button className="tree-row new-session" onClick={() => p.onTerminal!(project?.id)}>
                 <span className="twisty-gap" aria-hidden="true">+</span>
@@ -380,6 +390,7 @@ export function Sidebar(p: Props) {
               <button className="btn" onClick={p.onSettings}>Set up git sync</button>
             )}
             <button className="btn" onClick={p.onSettings}>Settings</button>
+            {p.onVsCode && <button className="btn" title="Open this project's folder in VS Code" onClick={() => p.onVsCode!(project?.id)}>Open in VS Code</button>}
             <div className="status" role="status">
               {p.syncStatus || (p.dirty ? 'Saved on this device. Not pushed yet.' : 'Saved on this device.')}
             </div>

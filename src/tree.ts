@@ -118,12 +118,14 @@ export function buildContext(
     if (node.note !== undefined && node.note.trim()) {
       raw.push({ role: 'user', content: `[The user's own note on that passage: ${node.note.trim()}]` });
     }
-    if (node.doc) {
-      const pages = scope === 'none' ? undefined : docText(node.doc.fingerprint);
+    // A web page is given to the model the way a PDF is: by its text, when this device has it.
+    const source = node.doc ?? (node.web?.url ? { fingerprint: `web:${node.web.url}`, title: node.web.title ?? node.web.url } : undefined);
+    if (source) {
+      const pages = scope === 'none' ? undefined : docText(source.fingerprint);
       if (scope === 'none') {
-        raw.push({ role: 'user', content: `[Document: "${node.doc.title}". Its text is not included; only the passage below is.]` });
+        raw.push({ role: 'user', content: `[Document: "${source.title}". Its text is not included; only the passage below is.]` });
       } else if (!pages) {
-        raw.push({ role: 'user', content: `[Document: "${node.doc.title}"]\n\n(The text of this document is not available on this device.)` });
+        raw.push({ role: 'user', content: `[Document: "${source.title}"]\n\n(The text of this document is not available on this device.)` });
       } else {
         const anchor = chain[i + 1]?.anchor;
         const passagePage = anchor ? pageOf(anchor.messageId) : undefined;
@@ -134,8 +136,8 @@ export function buildContext(
         const body = wanted.map((p) => `--- Page ${p} ---\n${pages[p - 1]}`).join('\n\n');
         const partial = wanted.length < pages.length;
         const header = partial
-          ? `[Document: "${node.doc.title}", ${pages.length} pages. Only page${wanted.length === 1 ? '' : 's'} ${wanted.join(' and ')} ${wanted.length === 1 ? 'is' : 'are'} included below.]`
-          : `[Document: "${node.doc.title}"]`;
+          ? `[Document: "${source.title}", ${pages.length} pages. Only page${wanted.length === 1 ? '' : 's'} ${wanted.join(' and ')} ${wanted.length === 1 ? 'is' : 'are'} included below.]`
+          : `[Document: "${source.title}"]`;
         // The whole paper at the very start is the same in every conversation, and is kept apart for caching.
         raw.push({ role: 'user', content: `${header}\n\n${body}`, shared: !partial && raw.length === 0 });
       }

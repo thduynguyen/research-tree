@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createSession, db, putHighlight, putNode, putProject, putSession, removeBranches, uid } from '../db';
 import { getSettings, useSettings } from '../settings';
-import { connectToHost, gitSave, gitState, hasFolder, syncFolder, type GitState } from '../folder';
+import { connectToHost, openInVsCode, gitSave, gitState, hasFolder, syncFolder, type GitState } from '../folder';
 import { pull, push } from '../sync';
 import { buildIndex, pathFrom, shorten } from '../tree';
 import type { TreeNode } from '../types';
@@ -270,6 +270,7 @@ export function App() {
           anchor: { messageId, start, end, quote, color: extra?.color },
           title: extra?.doc ? extra.doc.title : shorten(quote),
           doc: extra?.doc,
+          web: extra?.web,
           note: extra?.note ? '' : undefined,
           createdAt: t,
           updatedAt: t,
@@ -423,7 +424,9 @@ export function App() {
             projects={(projects ?? []).filter((p) => !p.deleted)}
             onNew={(projectId) => void createSession(projectId).then((s) => workspace.openSession(s.id))}
             onOpenPdf={(projectId) => setOpeningPdf({ projectId })}
-            onTerminal={folder ? (projectId) => void createSession(projectId, undefined, true).then((s) => workspace.openSession(s.id)) : undefined}
+            onBrowser={folder ? (projectId) => void createSession(projectId, undefined, { title: 'Browser', web: { url: '' } }).then((s) => workspace.openSession(s.id)) : undefined}
+            onVsCode={folder ? (projectId) => void openInVsCode((projects ?? []).find((p) => p.id === projectId && !p.deleted)?.name ?? 'Inbox').catch((e) => setFolderStatus(String(e instanceof Error ? e.message : e))) : undefined}
+            onTerminal={folder ? (projectId) => void createSession(projectId, undefined, { title: 'Terminal', terminal: '' }).then((s) => workspace.openSession(s.id)) : undefined}
             onNewProject={(name) => {
               const t = Date.now();
               const id = uid();
