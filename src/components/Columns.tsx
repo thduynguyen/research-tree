@@ -451,7 +451,9 @@ export function Columns() {
   // The level at depth 1 has the root as its parent, so the id alone would clash with the root column.
   const keyOf = (depth: number) => (depth === 0 ? 'root' : `level:${ws.levels[depth - 1].parent.id}`);
   const rootColumn = (pin: boolean, width?: number | string) => (
-    <div className="level" style={width ? { width } : undefined}>
+    // A width saved on a wide window must not crowd out the next column on a narrower one:
+    // the first column takes at most about three fifths of the window.
+    <div className="level" style={width ? { width: typeof width === 'number' ? `min(${width}px, 62vw)` : width } : undefined}>
       <Pane
         nodeId={root.id}
         variant="root"
