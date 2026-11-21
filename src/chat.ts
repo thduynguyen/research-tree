@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { db, putMessage, putNode, putSession, uid } from './db';
-import { answerStep } from './folder';
+import { answerStep, hasFolder, runCommand } from './folder';
 import { providers, type Approval } from './providers';
 import { findModel, getSettings, isReady, updateSettings } from './settings';
 import { SYSTEM_PROMPT, buildContext, buildIndex, shorten } from './tree';
@@ -97,19 +97,33 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
     const provider = providers[model.provider];
     const key = getSettings().keys[model.provider] ?? '';
     if (!isReady(getSettings(), model.provider)) throw new Error(`${provider.label} is not set up. Add it in Settings.`);
-    // A local server that can work in a folder is told how far it may go, and in which project's folder.
-    let extra: Record<string, unknown> | undefined;
-    const levels = model.provider === 'custom' ? getSettings().custom?.levels ?? [] : [];
-    if (node.access && node.access !== 'ask' && levels.includes(node.access)) {
+    // The project's folder on the local server, for the levels that work in one and for shell commands.
+    const folderOf = async () => {
       let root = node;
       for (let up = root.parentId ? index.byId.get(root.parentId) : undefined; up; up = up.parentId ? index.byId.get(up.parentId) : undefined) root = up;
       const session = (await db.sessions.filter((s) => s.rootNodeId === root.id && !s.deleted).first()) ?? undefined;
       const project = session?.projectId ? await db.projects.get(session.projectId) : undefined;
+      return project?.name ?? 'Inbox';
+    };
+    // "!command" runs the command itself in the project's folder, with no model involved.
+    if (text.startsWith('!') && hasFolder()) {
+      entry.text = '```\n';
+      await runCommand(await folderOf(), text.slice(1).trim(), controller.signal, (out) => {
+        entry.text += out;
+        notify();
+      });
+      entry.text = `${entry.text.replace(/\n?$/, '\n')}\`\`\``;
+      return;
+    }
+    // A local server that can work in a folder is told how far it may go, and in which project's folder.
+    let extra: Record<string, unknown> | undefined;
+    const levels = model.provider === 'custom' ? getSettings().custom?.levels ?? [] : [];
+    if (node.access && node.access !== 'ask' && levels.includes(node.access)) {
       // A server that keeps one running session per conversation needs only the new message:
       // exactly as typed, with the passage ahead of a branch's first question.
       const passage = !hadMessages && node.anchor && !text.startsWith('/') ? `[Side branch on the passage: "${node.anchor.quote}"]\n\n` : '';
       extra = {
-        research_tree: { level: node.access, folder: project?.name ?? 'Inbox', session: node.id, parent: node.parentId ?? undefined, message: passage + text },
+        research_tree: { level: node.access, folder: await folderOf(), session: node.id, parent: node.parentId ?? undefined, message: passage + text },
       };
     }
     await provider.stream({

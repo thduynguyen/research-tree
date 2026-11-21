@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createSession, db, putHighlight, putNode, putProject, putSession, removeBranches, uid } from '../db';
 import { getSettings, useSettings } from '../settings';
-import { gitSave, gitState, syncFolder, type GitState } from '../folder';
+import { connectToHost, gitSave, gitState, hasFolder, syncFolder, type GitState } from '../folder';
 import { pull, push } from '../sync';
 import { buildIndex, pathFrom, shorten } from '../tree';
 import type { TreeNode } from '../types';
@@ -96,10 +96,20 @@ export function App() {
   useEffect(() => {
     if (!sessions || !nodes || session || creating.current) return;
     creating.current = true;
-    void createSession().then((s) => {
+    void (async () => {
+      // An empty browser may still have sessions waiting in the folder of a local server: look there first.
+      if (sessions.length === 0) {
+        await connectToHost();
+        if (hasFolder()) await syncFolder().catch(() => undefined);
+        if (await db.sessions.filter((s) => !s.deleted).count()) {
+          creating.current = false;
+          return;
+        }
+      }
+      const s = await createSession();
       setSessionId(s.id);
       creating.current = false;
-    });
+    })();
   }, [sessions, nodes, session]);
 
   useEffect(() => {
@@ -124,6 +134,11 @@ export function App() {
     } catch (e) {
       setSyncStatus(`Sync failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }, []);
+
+  // Served by a local server that pairs with the app: connect to it, once, with nothing to type.
+  useEffect(() => {
+    void connectToHost();
   }, []);
 
   // With a local server that keeps a folder, every change is written there shortly after it is made.

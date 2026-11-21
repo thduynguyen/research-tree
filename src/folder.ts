@@ -5,8 +5,8 @@
 
 import { dumpDb, loadDump, db } from './db';
 import { mergeDumps, sessionMarkdown, slug } from './export';
-import { cleanUrl } from './providers';
-import { getSettings } from './settings';
+import { cleanUrl, providers, serverExtras } from './providers';
+import { getSettings, updateSettings } from './settings';
 import { buildIndex } from './tree';
 import type { DbDump, Highlight, Message, Session, TreeNode } from './types';
 
@@ -154,6 +154,56 @@ export function slashCommands(): Promise<string[]> {
     },
   );
   return commandList;
+}
+
+/** Runs a shell command in a project's folder on the local server, passing on its output as it comes. */
+export async function runCommand(folder: string, command: string, signal: AbortSignal, onOutput: (text: string) => void): Promise<void> {
+  const s = getSettings();
+  const key = s.keys.custom;
+  const res = await fetch(`${cleanUrl(s.custom?.url ?? '')}/research-tree/run`, {
+    method: 'POST',
+    signal,
+    headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder, command }),
+  });
+  if (!res.ok || !res.body) throw new Error((await res.json().catch(() => null))?.error ?? `${res.status} from the local server`);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onOutput(decoder.decode(value, { stream: true }));
+  }
+}
+
+/**
+ * When the app is served by a local server that pairs with it, connects to that
+ * server without the user typing an address or key. Any other host answers this
+ * with something else, and nothing happens.
+ */
+export async function pairWithHost(): Promise<{ url: string; key: string } | null> {
+  try {
+    const res = await fetch('/v1/research-tree/pair');
+    const body = res.ok && res.headers.get('content-type')?.includes('json') ? await res.json() : null;
+    return typeof body?.token === 'string' ? { url: `${location.origin}/v1`, key: body.token } : null;
+  } catch {
+    return null;
+  }
+}
+
+let connecting: Promise<void> | null = null;
+
+/** Sets up the server that serves the app as the custom server, unless one is set up already. */
+export function connectToHost(): Promise<void> {
+  connecting ??= (async () => {
+    if (getSettings().custom?.url) return;
+    const host = await pairWithHost();
+    if (!host || getSettings().custom?.url) return;
+    updateSettings({ keys: { ...getSettings().keys, custom: host.key }, custom: { url: host.url } });
+    const [models, extras] = await Promise.all([providers.custom.listModels(host.key).catch(() => []), serverExtras(host.url, host.key)]);
+    updateSettings({ custom: { url: host.url, ...extras }, models: { ...getSettings().models, custom: models } });
+  })();
+  return connecting;
 }
 
 /** Answers a step the server asked about. */

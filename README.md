@@ -49,6 +49,10 @@ Open **Settings** in the side panel.
   chat format, such as a model running on your computer with Ollama, LM Studio
   or llama.cpp. The address ends in `/v1`; a key is optional. The server has to
   allow requests from the page's address (for Ollama, set `OLLAMA_ORIGINS`).
+  A server may also offer to work in a folder on your computer: reading a
+  project's files, changing them and running commands (asking first, or not),
+  keeping sessions there as files, and running a shell command you type after
+  `!`. The choice appears under the message box and is off by default.
 - **Demo.** A built-in stand-in that needs no key, for trying the interface.
 
 A question about a paper sends the paper's text with it, placed first so that
