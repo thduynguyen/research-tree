@@ -1,5 +1,5 @@
 import { buildIndex, type TreeIndex } from './tree';
-import type { DbDump, Session, TreeNode } from './types';
+import { highlightKey, pageOf, type DbDump, type Session, type TreeNode } from './types';
 
 function mergeById<T extends { id: string; updatedAt: number }>(a: T[], b: T[]): T[] {
   const out = new Map(a.map((x) => [x.id, x]));
@@ -15,6 +15,7 @@ export function mergeDumps(a: DbDump, b: DbDump): DbDump {
   return {
     version: 1,
     projects: mergeById(a.projects ?? [], b.projects ?? []),
+    highlights: mergeById(a.highlights ?? [], b.highlights ?? []),
     sessions: mergeById(a.sessions, b.sessions),
     nodes: mergeById(a.nodes, b.nodes),
     messages: mergeById(a.messages, b.messages),
@@ -26,6 +27,19 @@ function nodeMarkdown(idx: TreeIndex, node: TreeNode, depth: number): string {
   if (depth > 0) {
     lines.push(`${'#'.repeat(Math.min(depth + 1, 6))} Branch: ${node.title}`, '');
     if (node.anchor) lines.push(`> Anchored to: “${node.anchor.quote.replace(/\s+/g, ' ')}”`, '');
+  }
+  if (node.doc) {
+    lines.push(`Document: ${node.doc.title}${node.doc.url ? ` (${node.doc.url})` : ''}`, '');
+  }
+  if (node.note !== undefined) lines.push('**Note:**', '', node.note.trim(), '');
+  const marks = [...(idx.highlightsOf.get(node.id) ?? [])].sort((a, b) => (pageOf(highlightKey(a)) ?? 0) - (pageOf(highlightKey(b)) ?? 0) || a.start - b.start);
+  if (marks.length) {
+    lines.push('Highlights:', '');
+    for (const h of marks) {
+      const page = pageOf(highlightKey(h));
+      lines.push(`- ${page ? `p.${page}: ` : ''}“${h.quote.replace(/\s+/g, ' ')}”`);
+    }
+    lines.push('');
   }
   for (const m of idx.messagesOf.get(node.id) ?? []) {
     const who = m.role === 'user' ? 'You' : `Assistant${m.model ? ` (${m.model.model})` : ''}`;
@@ -42,7 +56,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
  * files are a readable copy of each session, in a folder per project.
  */
 export function exportFiles(dump: DbDump): Record<string, string> {
-  const idx = buildIndex(dump.nodes, dump.messages);
+  const idx = buildIndex(dump.nodes, dump.messages, dump.highlights);
   const files: Record<string, string> = { 'research-tree/db.json': JSON.stringify(dump, null, 1) };
   for (const s of dump.sessions as Session[]) {
     if (s.deleted) continue;

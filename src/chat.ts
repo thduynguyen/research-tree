@@ -67,7 +67,15 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
   let error: string | undefined;
   try {
     const [nodes, messages] = await Promise.all([db.nodes.toArray(), db.messages.toArray()]);
-    const turns = buildContext(buildIndex(nodes, messages.filter((m) => m.id !== reply.id)), nodeId);
+    const index = buildIndex(nodes, messages.filter((m) => m.id !== reply.id));
+    // The text of any PDF above this node, from this device's copy of the file.
+    const texts = new Map<string, string[]>();
+    for (let cur = index.byId.get(nodeId); cur; cur = cur.parentId ? index.byId.get(cur.parentId) : undefined) {
+      const print = cur.doc?.fingerprint;
+      const text = print ? (await db.files.get(print))?.text : undefined;
+      if (print && text) texts.set(print, text);
+    }
+    const turns = buildContext(index, nodeId, (print) => texts.get(print));
     const provider = providers[model.provider];
     const key = getSettings().keys[model.provider] ?? '';
     if (model.provider !== 'demo' && !key) throw new Error(`No ${provider.label} key. Add one in Settings.`);

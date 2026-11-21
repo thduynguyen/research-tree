@@ -28,9 +28,46 @@ export interface Session {
   updatedAt: number;
 }
 
-/** Where a branch hangs off its parent: a text range inside one message. */
+/**
+ * A PDF a node shows. Only this reference is stored and synced, never the file:
+ * `fingerprint` identifies the PDF (empty until it has first been loaded) and
+ * `url`, when known, is where to fetch it again on another device.
+ */
+export interface DocRef {
+  fingerprint: string;
+  title: string;
+  url?: string;
+  pages: number;
+}
+
+/**
+ * A coloured highlight with nothing attached: on a PDF page, in a chat
+ * message or in a note. `messageId` names the text it is in, as for an Anchor.
+ */
+export interface Highlight {
+  id: string;
+  nodeId: string;
+  messageId?: string;
+  /** How highlights were first stored, on PDF pages only; read through highlightKey. */
+  page?: number;
+  start: number;
+  end: number;
+  quote: string;
+  color: string;
+  deleted?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Where a branch hangs off its parent: a text range inside one message, inside
+ * one page of a PDF (`messageId` is "pdf" plus the page number), or inside a
+ * note (`messageId` is "note").
+ */
 export interface Anchor {
   messageId: string;
+  /** The highlight colour of the passage; absent on branches made before colours. */
+  color?: string;
   start: number;
   end: number;
   quote: string;
@@ -42,12 +79,24 @@ export interface TreeNode {
   anchor?: Anchor;
   title: string;
   model?: ModelRef;
+  /** Present when the node is a PDF to read rather than a chat thread. */
+  doc?: DocRef;
+  /**
+   * Present (possibly empty) when the node is a written annotation rather than
+   * a chat thread: Markdown with LaTeX math, and no model involved.
+   */
+  note?: string;
   /**
    * Removed from its parent's tree without deleting anything: the branch and
    * its descendants are not listed, and its highlight shows as an underline
    * that can bring it back. A session rooted at the node still shows it.
    */
   hidden?: boolean;
+  /**
+   * Deleted for good, with everything under it. The record stays, emptied of
+   * its content, so that another device learns of the deletion when it syncs.
+   */
+  deleted?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -59,6 +108,8 @@ export interface Message {
   content: string;
   model?: ModelRef;
   error?: string;
+  /** Its branch was deleted; the content has been emptied. */
+  deleted?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -72,7 +123,16 @@ export interface DbDump {
   version: 1;
   /** Absent in dumps written before projects existed. */
   projects?: Project[];
+  /** Absent in dumps written before the PDF reader existed. */
+  highlights?: Highlight[];
   sessions: Session[];
   nodes: TreeNode[];
   messages: Message[];
 }
+
+/** The text range id used for page `n` of a PDF, and its inverse. */
+export const pageKey = (n: number) => `pdf${n}`;
+export const pageOf = (messageId: string) => (messageId.startsWith('pdf') ? Number(messageId.slice(3)) : undefined);
+export const NOTE_KEY = 'note';
+/** The text a highlight is in, whichever way it was stored. */
+export const highlightKey = (h: Highlight) => h.messageId ?? pageKey(h.page ?? 1);

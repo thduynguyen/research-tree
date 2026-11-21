@@ -128,7 +128,7 @@ h2, h3 { margin: 0; }
 /* The stage: pinned columns on the left, then a strip of columns that scrolls sideways through the depth of the tree */
 .stage { position: relative; flex: 1; min-height: 0; display: flex; }
 .root-slot { flex: none; position: relative; display: flex; width: 36px; }
-.root-slot.pinned { width: auto; max-width: 70%; }
+.root-slot.pinned { width: auto; max-width: 85%; }
 .root-col { display: flex; padding: 12px 0 12px 6px; border-right: 1px solid var(--line); background: #eceef2; }
 .root-slot:not(.pinned) .root-col { position: absolute; inset: 0 auto 0 0; z-index: 6; }
 .root-col.rail-only { width: 36px; padding: 0; }
@@ -159,7 +159,8 @@ h2, h3 { margin: 0; }
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: 0 1px 2px rgba(22, 24, 29, 0.04), 0 4px 16px rgba(22, 24, 29, 0.05);
   overflow: hidden;
-  animation: pane-in 0.22s ease-out both;
+  /* No fill mode: an animation left applied would keep the panel as the frame its floating menus are placed in. */
+  animation: pane-in 0.22s ease-out;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 @keyframes pane-in { from { opacity: 0; transform: translateY(8px) scale(0.99); } }
@@ -198,7 +199,7 @@ h2, h3 { margin: 0; }
 .btn.counter { min-height: 26px; padding: 0 9px; margin-right: 4px; font-size: 12px; border-radius: 13px; color: var(--muted); }
 .browse { position: relative; flex: 1; min-height: 0; }
 /* overflow-x must stay visible-as-clip: a second scrollable axis here would swallow sideways scrolling meant for the strip. */
-.snap { height: 100%; overflow-y: auto; overflow-x: clip; scroll-snap-type: y mandatory; scrollbar-width: none; border-radius: 12px; }
+.snap { position: relative; height: 100%; overflow-y: auto; overflow-x: clip; scroll-snap-type: y mandatory; scrollbar-width: none; border-radius: 12px; }
 .snap::-webkit-scrollbar { display: none; }
 .slot { height: 100%; padding: 2px 0; scroll-snap-align: start; scroll-snap-stop: always; display: flex; }
 .slot .pane { flex: 1; }
@@ -306,3 +307,118 @@ body.resizing-y { cursor: row-resize; user-select: none; }
   .sidebar { transition: none; }
   .pane, .level, .jump, .links path, .nudge svg { animation: none; }
 }
+
+/* PDF reader */
+.pdf { display: flex; flex-direction: column; gap: 10px; margin: -6px; }
+.pdf-page { position: relative; flex: none; background: #fff; box-shadow: 0 0 0 1px var(--line); overflow: hidden; }
+.pdf-page canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pdf-page-no { position: absolute; right: 6px; bottom: 4px; z-index: 2; padding: 0 6px; border-radius: 8px; background: rgba(22, 24, 29, 0.55); color: #fff; font-size: 11px; pointer-events: none; }
+.pdf-missing { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; }
+.pdf-missing p { margin: 0; }
+.btn.file, .pdf-missing label.btn { display: inline-flex; align-items: center; align-self: flex-start; cursor: pointer; }
+
+/* The invisible, selectable text over each page. These rules mirror the PDF library's own viewer styles. */
+.textLayer {
+  /* The whole layer multiplies with the page beneath it, so highlights tint the print and leave it sharp. */
+  position: absolute; inset: 0; z-index: 1; mix-blend-mode: multiply; overflow: clip; text-align: initial; opacity: 1; line-height: 1;
+  -webkit-text-size-adjust: none; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; user-select: text; }
+.textLayer > :not(.markedContent), .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1; --font-height: 0; --scale-x: 1; --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer .markedContent { display: contents; }
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
+.textLayer.selecting .endOfContent { top: 0; }
+.textLayer ::selection { background: rgba(47, 74, 198, 0.28); }
+.textLayer mark { color: transparent; background: var(--mark-active); border-radius: 2px; cursor: pointer; }
+.textLayer mark.active { box-shadow: 0 0 0 2px var(--accent); }
+.textLayer mark.detached { background: none; border-bottom: 2px dashed var(--accent); border-radius: 0; }
+
+.swatch { width: 26px; height: 26px; flex: none; border: 2px solid #fff; border-radius: 50%; padding: 0; }
+.swatch[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--accent); }
+.popover { align-items: center; }
+.popover a.btn { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+.popover.note { flex-direction: column; align-items: stretch; width: 280px; padding: 10px; gap: 8px; background: var(--panel); border: 1px solid var(--line); }
+.popover.note textarea { resize: vertical; padding: 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.swatches { display: flex; align-items: center; gap: 6px; }
+.swatches .btn { margin-left: auto; min-height: 28px; }
+
+/* Zoom, notes and the selection menu */
+.zoom { display: inline-flex; align-items: center; margin-right: 4px; }
+.zoom .icon-btn { width: 26px; height: 26px; font-size: 16px; line-height: 1; }
+.zoom-level { min-width: 44px; height: 26px; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 12px; }
+.zoom-level:hover { background: var(--ground); color: var(--ink); }
+/* touch-action leaves two-finger pinches to the reader's own zoom instead of the browser's page zoom. */
+.pane-scroll:has(> .pdf) { overflow-x: auto; touch-action: pan-x pan-y; }
+.btn.small { min-height: 26px; padding: 0 9px; margin-right: 4px; font-size: 12px; }
+textarea.note-edit { width: 100%; resize: vertical; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 8px; font: inherit; }
+.note-empty { align-self: flex-start; border: 0; background: none; padding: 0; color: var(--muted); font-size: 13px; text-decoration: underline; }
+.popover.select { gap: 6px; padding: 6px 8px; background: var(--panel); border: 1px solid var(--line); }
+.popover.select .btn { min-height: 30px; }
+.swatches.tiny { gap: 3px; margin-right: 6px; }
+/* In a panel header only the current colour shows; the others appear while the pointer or focus is on the group. */
+.swatches.tiny .swatch { width: 14px; height: 14px; border-width: 1px; display: none; }
+.swatches.tiny .swatch[aria-pressed='true'], .swatches.tiny:hover .swatch, .swatches.tiny:focus-within .swatch { display: block; }
+.swatches.tiny:not(:has([aria-pressed='true'])) .swatch:first-child { display: block; opacity: 0.5; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.rename { flex: 1; min-width: 0; display: flex; }
+.rename input { flex: 1; min-width: 0; min-height: 26px; padding: 0 6px; border: 1px solid var(--accent); border-radius: 6px; font: inherit; }
+
+/* A note is as tall as its text, so short notes stack in the column instead of each filling it. */
+.slot.compact { height: auto; max-height: 100%; }
+.slot.compact .pane { flex: 1 1 auto; align-self: flex-start; width: 100%; }
+.pane.note .pane-body, .pane.note .pane-scroll { flex: none; }
+.pane.note .pane-scroll { padding: 10px 14px; overflow: visible; }
+.pane.note .pane-head { min-height: 36px; border-bottom: 0; padding-top: 2px; padding-bottom: 0; }
+.pane.note.aside { height: auto; }
+
+/* What a marked passage carries: a note or a conversation. A plain highlight has no underline and no badge. */
+mark[data-kind] { position: relative; border-bottom: 2px solid rgba(22, 24, 29, 0.55); }
+mark[data-kind='ask'] { border-bottom-color: var(--accent); }
+.badge {
+  position: absolute; right: -9px; top: -8px; z-index: 3; width: 13px; height: 13px; border-radius: 50%;
+  background: var(--ink) center / 9px 9px no-repeat; box-shadow: 0 0 0 1.5px #fff; pointer-events: none;
+}
+/* Note: lines of writing. Ask: a speech bubble. */
+.badge.note { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' fill='none' stroke='white' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M2 3h6M2 5h6M2 7h3.5'/%3E%3C/svg%3E"); }
+.badge.ask { background-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' fill='white'%3E%3Cpath d='M1.5 2h7v4.5H5L3 8.3V6.5H1.5z'/%3E%3C/svg%3E"); }
+.textLayer .badge { right: -0.55em; top: -0.5em; width: 0.8em; height: 0.8em; background-size: 70%; mix-blend-mode: normal; }
+
+.swatch.last { box-shadow: 0 0 0 2px var(--muted); }
+.swatch.remove { display: inline-flex; align-items: center; justify-content: center; color: var(--ink); box-shadow: 0 0 0 2px var(--ink); }
+
+.popover .confirm, .pane-head .confirm { gap: 4px; padding: 0 4px; font-size: 13px; color: var(--ink); white-space: nowrap; }
+
+/*
+ * The "Selection Highlighter" browser extension marks every other occurrence
+ * of the selected text by giving it a background and a solid text colour.
+ * Over a PDF that makes the hidden text layer visible in its own stand-in
+ * font, scrambled on top of the page. Keep its tint, but keep our text
+ * hidden so the printed page stays readable.
+ */
+.textLayer ::highlight(selection_highlighter_highlighted_selection) {
+  color: transparent !important;
+  background-color: rgba(255, 216, 77, 0.55) !important;
+}
+
+/* A minimized conversation: its first question and the gist of the latest answer. */
+.mini-chat { display: flex; flex-direction: column; gap: 2px; width: 100%; border: 0; background: none; padding: 0; text-align: left; font-size: 13px; color: var(--muted); }
+.mini-chat strong { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-chat span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Asking before a delete: the question replaces the header's contents. */
+.pane-head.confirming > :not(.confirm-row) { display: none; }
+.confirm-row { flex: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; padding: 4px 0; font-size: 13px; }
+.confirm-row span { flex: 1 1 120px; min-width: 0; }
+.confirm-row .btn { min-height: 28px; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 500; }
+
+/* Opens a branch's own branches in the next column: their number and a double arrow. */
+.btn.subtree { display: inline-flex; align-items: center; gap: 3px; min-height: 26px; padding: 0 7px; margin-right: 4px; border-radius: 13px; font-size: 12px; color: var(--accent-ink); background: var(--accent-tint); border-color: #c9d4fa; }
+.btn.subtree[aria-expanded='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }

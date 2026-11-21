@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useLive } from '../chat';
-import { summarize } from '../tree';
+import { kindLabel, preview } from '../tree';
 import type { TreeNode } from '../types';
 import { useWorkspace, type LevelInfo } from '../workspace';
 import { Handle } from './Handle';
@@ -14,7 +14,7 @@ const ROOT_PIN_KEY = 'rt.rootPinned';
 const NARROW = 640;
 
 /** Widths the user has dragged, by column depth. Other columns use the CSS default. */
-function loadWidths(): Record<number, number> {
+function loadWidths(): Record<string, number> {
   try {
     return JSON.parse(localStorage.getItem(WIDTHS_KEY) ?? '{}');
   } catch {
@@ -31,15 +31,14 @@ const Chevrons = ({ up }: { up: boolean }) => (
 );
 
 /**
- * One level of the tree. Its unpinned branches are full-height panels in a
- * column that scrolls and snaps vertically, so scrolling moves across siblings;
- * whichever panel the column settles on becomes the selected branch, and the
- * levels to the right follow it. Pinned branches sit above, out of the scroll.
+ * One level of the tree. Its unpinned branches are panels in a column that
+ * scrolls and snaps vertically, so scrolling moves across siblings. Scrolling
+ * only looks: the selected branch, which the levels to the right follow,
+ * changes when a panel is clicked. Pinned branches sit above, out of the scroll.
  */
 function Level({ info, width }: { info: LevelInfo; width?: number }) {
   const ws = useWorkspace();
   const snap = useRef<HTMLDivElement>(null);
-  const settle = useRef(0);
   const first = useRef(true);
   const [heights, setHeights] = useState<Record<string, number>>({});
   const [menu, setMenu] = useState(false);
@@ -62,26 +61,27 @@ function Level({ info, width }: { info: LevelInfo; width?: number }) {
   const at = browse.findIndex((n) => n.id === info.selected?.id);
   const position = (n: TreeNode) => `${info.nodes.indexOf(n) + 1} of ${info.nodes.length}`;
 
-  // A selection made elsewhere (a highlight, the tree, the list): glide to it.
+  // Panels are not all one height: a chat or a PDF fills the column, a note is
+  // only as tall as its text, so several notes can be in view together.
+  const slotAt = (i: number) => snap.current?.children[i] as HTMLElement | undefined;
+  const inView = (slot: HTMLElement) => {
+    const el = snap.current!;
+    return slot.offsetTop >= el.scrollTop - 2 && slot.offsetTop + slot.offsetHeight <= el.scrollTop + el.clientHeight + 2;
+  };
+
+  // A selection made elsewhere (a highlight, the tree, the list): glide to it unless it is already in view.
   useEffect(() => {
     const el = snap.current;
-    if (!el || at < 0) return;
-    const top = at * el.clientHeight;
-    if (Math.abs(el.scrollTop - top) > 2) el.scrollTo({ top, behavior: first.current || calm() ? 'auto' : 'smooth' });
+    const slot = slotAt(at);
+    if (!el || !slot) return;
+    if (!inView(slot)) el.scrollTo({ top: slot.offsetTop, behavior: first.current || calm() ? 'auto' : 'smooth' });
     first.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [at, browse.length]);
 
-  // A selection made by scrolling: once the column comes to rest, select the panel it rests on.
-  const onScroll = () => {
-    clearTimeout(settle.current);
-    settle.current = window.setTimeout(() => {
-      const el = snap.current;
-      if (!el) return;
-      const node = browse[Math.round(el.scrollTop / el.clientHeight)];
-      if (node && node.id !== info.selected?.id) ws.select(node.id, { focus: false });
-    }, 140);
-  };
-  useEffect(() => () => clearTimeout(settle.current), []);
+  // Scrolling the column never changes what is selected. If it did, the columns
+  // to the right would come and go as panels with and without open branches
+  // passed by. Only a click, an arrow tab or the list picks a panel.
 
   // Each panel's header carries its place among its siblings; the pill opens the list of all of them.
   const pill = (n: TreeNode) =>
@@ -124,9 +124,9 @@ function Level({ info, width }: { info: LevelInfo; width?: number }) {
                   ws.select(n.id, { focus: false });
                 }}
               >
-                <strong>“{n.title}”</strong> · {messages.length} {messages.length === 1 ? 'message' : 'messages'}
+                <strong>“{n.title}”</strong> · {kindLabel(ws.idx, n)}
                 {pinned.includes(n) && ' · pinned'}
-                <span>{summarize(messages)}</span>
+                <span>{preview(ws.idx, n)}</span>
               </button>
             );
           })}
@@ -135,16 +135,29 @@ function Level({ info, width }: { info: LevelInfo; width?: number }) {
 
       {pinned.map((n) => (
         <Fragment key={n.id}>
-          <Pane nodeId={n.id} variant="aside" headExtra={pill(n)} style={{ flex: 'none', height: heights[n.id] ?? '30%' }} />
+          <Pane nodeId={n.id} variant="aside" headExtra={pill(n)} style={{ flex: 'none', height: heights[n.id] ?? (n.note !== undefined || ws.view.minimized.includes(n.id) ? undefined : '30%') }} />
           <Handle axis="y" min={120} label={`Resize height of ${n.title}`} onChange={(h) => setHeights((all) => ({ ...all, [n.id]: h }))} />
         </Fragment>
       ))}
 
       {browse.length > 0 && (
         <div className="browse">
-          <div className="snap" ref={snap} onScroll={onScroll}>
+          <div className="snap" ref={snap}>
             {browse.map((n) => (
-              <div className="slot" key={n.id}>
+              <div
+                className={n.note !== undefined || ws.view.minimized.includes(n.id) ? 'slot compact' : 'slot'}
+                key={n.id}
+                // With several panels in view, clicking in one selects it. This waits for the
+                // click to finish: selecting on the press could scroll the column and move
+                // the button out from under the pointer before the click landed.
+                onClickCapture={(e) => {
+                  // Every click picks the panel, selected already or not, so that the parent's
+                  // text goes to its passage. Typing a message or finishing a text selection
+                  // is not a pick.
+                  const busy = (e.target as Element).closest('.composer, textarea, input, select') || !document.getSelection()?.isCollapsed;
+                  if (n.id !== info.selected?.id || !busy) ws.select(n.id, { focus: false });
+                }}
+              >
                 <Pane nodeId={n.id} variant="branch" headExtra={pill(n)} />
               </div>
             ))}
@@ -437,7 +450,7 @@ export function Columns() {
   const root = ws.trail[0];
   // The level at depth 1 has the root as its parent, so the id alone would clash with the root column.
   const keyOf = (depth: number) => (depth === 0 ? 'root' : `level:${ws.levels[depth - 1].parent.id}`);
-  const rootColumn = (pin: boolean, width?: number) => (
+  const rootColumn = (pin: boolean, width?: number | string) => (
     <div className="level" style={width ? { width } : undefined}>
       <Pane
         nodeId={root.id}
@@ -463,6 +476,9 @@ export function Columns() {
   // A phone has room for one column, so there the root is simply the first of them.
   const depths = [...(narrowWindow ? [0] : []), ...ws.levels.map((l) => l.depth)];
   const rootShown = rootPinned || rootPeek;
+  // A PDF needs room to be read: its root column starts at 60% of the width, and keeps its own size.
+  const rootKey = root.doc ? 'pdfRoot' : '0';
+  const rootWidth: number | string | undefined = widths[rootKey] ?? (root.doc ? '60vw' : undefined);
 
   return (
     <div className="stage" ref={stage}>
@@ -479,14 +495,14 @@ export function Columns() {
             }}
           >
             {rootShown ? (
-              rootColumn(true, widths[0])
+              rootColumn(true, rootWidth)
             ) : (
               <button className="rail" aria-label={`Show the root: ${ws.session.title}`} onClick={() => setRootPeek(true)}>
                 <span>Root · {ws.session.title}</span>
               </button>
             )}
           </div>
-          {rootPinned && <Handle label="Resize the root column" min={280} onChange={(w) => setWidths((all) => ({ ...all, 0: w }))} />}
+          {rootPinned && <Handle label="Resize the root column" min={280} onChange={(w) => setWidths((all) => ({ ...all, [rootKey]: w }))} />}
         </div>
       )}
       {depths.length > 0 ? (
@@ -494,7 +510,7 @@ export function Columns() {
       ) : (
         <div className="empty">
           <p>Branches open here.</p>
-          <p>Select any text in a reply, then choose “Ask in a new branch”.</p>
+          <p>Select any text on the left, then choose “Ask in a new branch”.</p>
         </div>
       )}
       <Links stage={stage} />

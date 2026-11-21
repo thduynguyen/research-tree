@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeDumps, exportFiles } from './export';
+import { locate, paperLabel, pdfUrlOf, whenAndWhere } from './text';
 import { buildContext, buildIndex, pathFrom, summarize } from './tree';
 import type { DbDump, Message, TreeNode } from './types';
 import { choosePath, resolveView } from './workspace';
@@ -78,22 +79,150 @@ describe('hidden branches', () => {
 describe('the chosen line', () => {
   const wide = buildIndex([...nodes, node('b2', 'root', 'a2')], messages);
 
-  it('defaults to the first branch at each level and runs to a leaf', () => {
+  it('shows the root\'s branches and keeps every subtree closed by default', () => {
     const { trail, levels } = resolveView(wide, 'root');
-    expect(trail.map((n) => n.id)).toEqual(['root', 'b', 'c']);
-    expect(levels.map((l) => [l.parent.id, l.selected?.id, l.nodes.length])).toEqual([['root', 'b', 2], ['b', 'c', 1]]);
+    expect(trail.map((n) => n.id)).toEqual(['root', 'b']);
+    expect(levels.map((l) => [l.parent.id, l.selected?.id, l.nodes.length])).toEqual([['root', 'b', 2]]);
   });
 
-  it('follows a chosen path and remembers choices under other branches', () => {
-    let view = choosePath(resolveView(wide, 'root').view, ['root', 'b2']);
+  it('goes on into a branch only once it has been opened up', () => {
+    const { trail, levels } = resolveView(wide, 'root', { expanded: ['b'] });
+    expect(trail.map((n) => n.id)).toEqual(['root', 'b', 'c']);
+    expect(levels.map((l) => l.parent.id)).toEqual(['root', 'b']);
+  });
+
+  it('selecting a branch does not open it, but going to a deeper one opens the way to it', () => {
+    const start = resolveView(wide, 'root').view;
+    const picked = choosePath(start, ['root', 'b']);
+    expect(picked.expanded).toEqual([]);
+    const deep = choosePath(start, ['root', 'b', 'c']);
+    expect(deep.expanded).toEqual(['b']);
+    expect(resolveView(wide, 'root', deep).trail.map((n) => n.id)).toEqual(['root', 'b', 'c']);
+  });
+
+  it('remembers choices under other branches', () => {
+    let view = choosePath(resolveView(wide, 'root', { expanded: ['b'] }).view, ['root', 'b2']);
     expect(resolveView(wide, 'root', view).trail.map((n) => n.id)).toEqual(['root', 'b2']);
     view = choosePath(view, ['root', 'b']);
     expect(resolveView(wide, 'root', view).trail.map((n) => n.id)).toEqual(['root', 'b', 'c']);
   });
 
+  it('stops at a minimized conversation, so its branches get no column', () => {
+    const { trail, levels } = resolveView(wide, 'root', { expanded: ['b'], minimized: ['b'] });
+    expect(trail.map((n) => n.id)).toEqual(['root', 'b']);
+    expect(levels.map((l) => l.parent.id)).toEqual(['root']);
+  });
+
   it('skips pinned branches by default and ignores choices that no longer exist', () => {
     expect(resolveView(wide, 'root', { pinned: ['b'] }).trail.map((n) => n.id)).toEqual(['root', 'b2']);
-    expect(resolveView(wide, 'root', { choice: { root: 'gone' } }).trail.map((n) => n.id)).toEqual(['root', 'b', 'c']);
+    expect(resolveView(wide, 'root', { choice: { root: 'gone' } }).trail.map((n) => n.id)).toEqual(['root', 'b']);
+  });
+});
+
+describe('PDF nodes', () => {
+  const paper: TreeNode = { ...node('paper', null), doc: { fingerprint: 'f1', title: 'A Paper', pages: 2 } };
+  const ask: TreeNode = { ...node('ask', 'paper'), anchor: { messageId: 'pdf2', start: 0, end: 5, quote: 'the claim' } };
+  const pdfIdx = buildIndex([paper, ask], [msg('m1', 'ask', 'user', 'is this right?', 1)]);
+
+  it('give the model the document text and the page of the passage', () => {
+    const turns = buildContext(pdfIdx, 'ask', (print) => (print === 'f1' ? ['first page', 'second page'] : undefined));
+    expect(turns).toHaveLength(1);
+    expect(turns[0].content).toContain('[Document: "A Paper"]');
+    expect(turns[0].content).toContain('--- Page 2 ---\nsecond page');
+    expect(turns[0].content).toContain('[Side branch on the passage on page 2: "the claim"]');
+    expect(turns[0].content.endsWith('is this right?')).toBe(true);
+  });
+
+  it('say so when the text is not on this device', () => {
+    expect(buildContext(pdfIdx, 'ask')[0].content).toContain('not available on this device');
+  });
+});
+
+describe('locate', () => {
+  // As in a PDF text layer: no space where the line broke between "dot" and "products".
+  const page = 'We suspect the dotproducts grow large in magnitude.';
+
+  it('trusts stored offsets when the text still matches, ignoring whitespace', () => {
+    expect(locate(page, 15, 26, 'dot products')).toEqual([15, 26]);
+  });
+  it('finds the quote again when the offsets are stale', () => {
+    expect(locate(page, 0, 5, 'dot products grow')).toEqual([15, 31]);
+  });
+  it('gives up when the quote is not on the page', () => {
+    expect(locate(page, 0, 5, 'not here')).toBeNull();
+  });
+});
+
+describe('pdfUrlOf', () => {
+  it('maps arXiv pages to their PDF and keeps direct PDF links', () => {
+    expect(pdfUrlOf('https://arxiv.org/abs/1706.03762')).toBe('https://arxiv.org/pdf/1706.03762');
+    expect(pdfUrlOf('https://arxiv.org/pdf/1706.03762v7.pdf')).toBe('https://arxiv.org/pdf/1706.03762v7');
+    expect(pdfUrlOf('https://example.org/papers/x.PDF')).toBe('https://example.org/papers/x.PDF');
+  });
+  it('leaves other links alone', () => {
+    expect(pdfUrlOf('https://example.org/blog/post')).toBeNull();
+    expect(pdfUrlOf('not a url')).toBeNull();
+  });
+});
+
+describe('paper labels', () => {
+  it('reads the venue and year printed on the first page', () => {
+    expect(whenAndWhere('31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach')).toEqual({ venue: 'neurips', year: '17' });
+    expect(whenAndWhere('Published as a conference paper at ICLR 2015')).toEqual({ venue: 'iclr', year: '15' });
+  });
+  it('falls back to the year in an arXiv identifier', () => {
+    expect(whenAndWhere('arXiv:1503.02531v1 [stat.ML] 9 Mar 2015')).toEqual({ venue: 'arxiv', year: '15' });
+    expect(whenAndWhere('no clues here', 'https://arxiv.org/pdf/2106.09685')).toEqual({ venue: 'arxiv', year: '21' });
+    expect(whenAndWhere('no clues here')).toEqual({});
+  });
+  it('builds LastNameYYvenue - Title from whatever is known', () => {
+    expect(paperLabel({ title: 'Attention Is All You Need', author: 'Ashish Vaswani', year: '17', venue: 'neurips' }, 'x')).toBe('Vaswani17neurips - Attention Is All You Need');
+    expect(paperLabel({ title: 'A Paper', author: 'Ada Lovelace' }, 'x')).toBe('Lovelace - A Paper');
+    expect(paperLabel({ title: 'A Paper' }, 'x')).toBe('A Paper');
+    expect(paperLabel({}, 'file-name')).toBe('file-name');
+  });
+});
+
+describe('notes', () => {
+  it('are passed to the model as the user\'s own words on the passage', () => {
+    const noteNode: TreeNode = { ...node('n', 'root', 'a1'), note: 'I think this is $O(n^2)$.' };
+    const ask = node('q', 'n');
+    ask.anchor = { messageId: 'note', start: 0, end: 5, quote: 'I think' };
+    const withNote = buildIndex([...nodes, noteNode, ask], [...messages, msg('nq', 'q', 'user', 'am I right?', 9)]);
+    const text = buildContext(withNote, 'q').map((t) => t.content).join('\n');
+    expect(text).toContain("[The user's own note on that passage: I think this is $O(n^2)$.]");
+    expect(text).toContain('[Side branch on the passage: "I think"]');
+  });
+});
+
+describe('order of branches', () => {
+  it('follows the text: by page in a PDF, then by position, whatever the order of creation', () => {
+    const paper: TreeNode = { ...node('paper', null), doc: { fingerprint: 'f', title: 'P', pages: 3 } };
+    const at = (id: string, page: number, start: number, createdAt: number): TreeNode => ({
+      ...node(id, 'paper'), createdAt, anchor: { messageId: `pdf${page}`, start, end: start + 3, quote: 'x' },
+    });
+    const made = buildIndex([paper, at('p2', 2, 10, 1), at('p1late', 1, 400, 2), at('p1early', 1, 20, 3), { ...node('loose', 'paper'), createdAt: 0 }], []);
+    expect(made.childrenOf.get('paper')!.map((n) => n.id)).toEqual(['p1early', 'p1late', 'p2', 'loose']);
+  });
+
+  it('follows the messages in a chat', () => {
+    const late = { ...node('onA2', 'root', 'a2'), createdAt: 1 };
+    const early = { ...node('onA1', 'root', 'a1'), createdAt: 2 };
+    expect(buildIndex([...nodes.filter((n) => n.id === 'root'), late, early], messages).childrenOf.get('root')!.map((n) => n.id)).toEqual(['onA1', 'onA2']);
+  });
+});
+
+describe('deleted branches', () => {
+  it('and their messages are left out entirely', () => {
+    const gone = buildIndex(
+      nodes.map((n) => (n.id === 'b' || n.id === 'c' ? { ...n, deleted: true } : n)),
+      messages.map((m) => (m.nodeId === 'b' || m.nodeId === 'c' ? { ...m, deleted: true, content: '' } : m)),
+    );
+    expect(gone.byId.has('b')).toBe(false);
+    expect(gone.childrenOf.get('root')).toBeUndefined();
+    expect(gone.hiddenOf.get('root')).toBeUndefined();
+    expect(gone.messagesOf.has('b')).toBe(false);
+    expect(buildContext(gone, 'root')).toHaveLength(4);
   });
 });
 

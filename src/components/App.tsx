@@ -1,12 +1,13 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createSession, db, putNode, putProject, putSession, uid } from '../db';
+import { createSession, db, putHighlight, putNode, putProject, putSession, removeBranches, uid } from '../db';
 import { getSettings, useSettings } from '../settings';
 import { pull, push } from '../sync';
 import { buildIndex, pathFrom, shorten } from '../tree';
 import type { TreeNode } from '../types';
-import { MAX_PINNED, WorkspaceCtx, choosePath, resolveView, type View, type Workspace } from '../workspace';
+import { MAX_PINNED, WorkspaceCtx, freshNotes, choosePath, resolveView, type View, type Workspace } from '../workspace';
 import { Columns } from './Columns';
+import { OpenPdf } from './OpenPdf';
 import { Handle } from './Handle';
 import { IconButton } from './Icon';
 import { SelectionPopover } from './SelectionPopover';
@@ -34,12 +35,39 @@ function saveLocal(key: string, value: unknown) {
   }
 }
 
+/** Whether this tab is the one on screen. */
+function usePageShown(): boolean {
+  const [shown, setShown] = useState(() => document.visibilityState === 'visible');
+  useEffect(() => {
+    const update = () => setShown(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, []);
+  return shown;
+}
+
+/**
+ * A live view of a table while `active`; while not, the last value seen, with
+ * no database access at all. It catches up as soon as it is active again.
+ */
+function useTable<T>(read: () => Promise<T>, active: boolean): T | undefined {
+  const last = useRef<T | undefined>(undefined);
+  const value = useLiveQuery(() => (active ? read() : last.current), [active]);
+  if (value !== undefined) last.current = value;
+  return value ?? last.current;
+}
+
 export function App() {
-  const sessions = useLiveQuery(() => db.sessions.toArray(), []);
-  const projects = useLiveQuery(() => db.projects.toArray(), []);
-  const nodes = useLiveQuery(() => db.nodes.toArray(), []);
-  const messages = useLiveQuery(() => db.messages.toArray(), []);
-  const dirty = useLiveQuery(() => db.meta.get('dirty'), [])?.value === true;
+  // A tab that is not on screen reads nothing from the database. The browser
+  // slows such tabs right down, and a read left half-finished there holds a
+  // lock that stalls every save and delete in the tab being used.
+  const shown = usePageShown();
+  const sessions = useTable(() => db.sessions.toArray(), shown);
+  const projects = useTable(() => db.projects.toArray(), shown);
+  const nodes = useTable(() => db.nodes.toArray(), shown);
+  const messages = useTable(() => db.messages.toArray(), shown);
+  const highlights = useTable(() => db.highlights.toArray(), shown);
+  const dirty = useTable(() => db.meta.get('dirty').then((row) => row?.value === true), shown) === true;
   const settings = useSettings();
 
   const [sessionId, setSessionId] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
@@ -49,13 +77,16 @@ export function App() {
   const [future, setFuture] = useState<string[]>([]);
   const [views, setViews] = useState<Record<string, Partial<View>>>(() => loadJson(VIEWS_KEY, {}));
   const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
+  const [picked, setPicked] = useState<{ id: string; n: number; at: number } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // Open while choosing a PDF for a new session; holds the project it will be filed under.
+  const [openingPdf, setOpeningPdf] = useState<{ projectId?: string } | null>(null);
   const [pinned, setPinned] = useState(() => loadJson(PIN_KEY, true));
   const [peek, setPeek] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => loadJson(SIDEBAR_KEY, 264));
   const [syncStatus, setSyncStatus] = useState('');
 
-  const idx = useMemo(() => buildIndex(nodes ?? [], messages ?? []), [nodes, messages]);
+  const idx = useMemo(() => buildIndex(nodes ?? [], messages ?? [], highlights ?? []), [nodes, messages, highlights]);
   const visible = useMemo(() => (sessions ?? []).filter((s) => !s.deleted && idx.byId.has(s.rootNodeId)), [sessions, idx]);
   const session = visible.find((s) => s.id === sessionId) ?? [...visible].sort((a, b) => b.updatedAt - a.updatedAt)[0];
 
@@ -136,13 +167,29 @@ export function App() {
       trail,
       levels,
       focus,
+      picked,
       home,
       select(nodeId, opts) {
         const ids = idsTo(nodeId);
         if (!ids.length) return;
         setView((cur) => choosePath(cur, ids));
         if (opts?.focus !== false) ask(nodeId);
+        if (opts?.follow !== false) setPicked((p) => ({ id: nodeId, n: (p?.n ?? 0) + 1, at: Date.now() }));
       },
+      toggleMinimized: (nodeId) =>
+        setView((cur) => ({
+          ...cur,
+          minimized: cur.minimized.includes(nodeId) ? cur.minimized.filter((id) => id !== nodeId) : [...cur.minimized, nodeId],
+          // Minimizing closes its branches too.
+          expanded: cur.expanded.filter((id) => id !== nodeId),
+        })),
+      toggleExpanded: (nodeId) =>
+        setView((cur) => {
+          if (cur.expanded.includes(nodeId)) return { ...cur, expanded: cur.expanded.filter((id) => id !== nodeId) };
+          // Opening a branch's subtree puts the line through it, and un-minimizes it.
+          const next = choosePath(cur, idsTo(nodeId));
+          return { ...next, expanded: [...next.expanded, nodeId], minimized: next.minimized.filter((id) => id !== nodeId) };
+        }),
       toggleLock: (nodeId) =>
         setView((cur) => ({
           ...cur,
@@ -164,25 +211,67 @@ export function App() {
           const choice = onLine && neighbour ? { ...cur.choice, [parentId]: neighbour.id } : cur.choice;
           return { ...cur, choice, pinned: [...cur.pinned, nodeId] };
         }),
-      async branch(nodeId, messageId, start, end, quote) {
+      async branch(nodeId, messageId, start, end, quote, extra) {
         const t = Date.now();
         const node: TreeNode = {
           id: uid(),
           parentId: nodeId,
-          anchor: { messageId, start, end, quote },
-          title: shorten(quote),
+          anchor: { messageId, start, end, quote, color: extra?.color },
+          title: extra?.doc ? extra.doc.title : shorten(quote),
+          doc: extra?.doc,
+          note: extra?.note ? '' : undefined,
           createdAt: t,
           updatedAt: t,
         };
+        if (extra?.note) freshNotes.add(node.id);
         await putNode(node);
         const ids = [...idsTo(nodeId), node.id];
         setView((cur) => choosePath(cur, ids));
         ask(node.id);
       },
-      async hide(nodeId) {
+      async highlight(nodeId, messageId, start, end, quote, color) {
+        const t = Date.now();
+        await putHighlight({ id: uid(), nodeId, messageId, start, end, quote, color, createdAt: t, updatedAt: t });
+      },
+      async setNote(nodeId, text) {
         const node = idx.byId.get(nodeId);
-        if (!node?.parentId) return;
-        await putNode({ ...node, hidden: true });
+        if (node && node.note !== text) await putNode({ ...node, note: text });
+      },
+      async setColor(nodeId, color) {
+        const node = idx.byId.get(nodeId);
+        if (node?.anchor) await putNode({ ...node, anchor: { ...node.anchor, color } });
+      },
+      async updateHighlight(id, patch) {
+        const found = (highlights ?? []).find((h) => h.id === id);
+        if (found) await putHighlight({ ...found, ...patch });
+      },
+      async setDoc(nodeId, doc) {
+        const node = idx.byId.get(nodeId);
+        if (!node) return;
+        // The node was named after its link or file until the PDF gave its real title.
+        const rename = node.title === node.doc?.title;
+        await putNode({ ...node, doc, title: rename ? doc.title : node.title });
+        if (!rename) return;
+        for (const s of sessions ?? []) {
+          if (s.rootNodeId === nodeId && s.title === node.title) await putSession({ ...s, title: doc.title });
+        }
+      },
+      async remove(nodeId) {
+        if (nodeId === rootId) return;
+        // If the line ran through it, move the line to the branch next to it, not back to the first one.
+        const parentId = idx.byId.get(nodeId)?.parentId;
+        const siblings = parentId ? idx.childrenOf.get(parentId) ?? [] : [];
+        const at = siblings.findIndex((n) => n.id === nodeId);
+        const neighbour = siblings[at + 1] ?? siblings[at - 1];
+        if (parentId && neighbour && trail.some((n) => n.id === nodeId)) {
+          setView((cur) => ({ ...cur, choice: { ...cur.choice, [parentId]: neighbour.id } }));
+        }
+        // Everything under it goes too, including branches that were moved out to their own sessions.
+        const ids = [nodeId];
+        for (let i = 0; i < ids.length; i++) {
+          for (const n of nodes ?? []) if (n.parentId === ids[i] && !n.deleted) ids.push(n.id);
+        }
+        await removeBranches(ids);
       },
       async restore(nodeId) {
         const node = idx.byId.get(nodeId);
@@ -235,7 +324,7 @@ export function App() {
         setPeek(false);
       },
     };
-  }, [session, sessions, visible, idx, views, focus]);
+  }, [session, sessions, nodes, visible, highlights, idx, views, focus, picked]);
 
   if (!workspace) return <div className="loading">Loading…</div>;
 
@@ -273,6 +362,7 @@ export function App() {
             gitReady={!!settings.github}
             projects={(projects ?? []).filter((p) => !p.deleted)}
             onNew={(projectId) => void createSession(projectId).then((s) => workspace.openSession(s.id))}
+            onOpenPdf={(projectId) => setOpeningPdf({ projectId })}
             onNewProject={(name) => {
               const t = Date.now();
               const id = uid();
@@ -282,6 +372,14 @@ export function App() {
             onMoveSession={(id, projectId) => {
               const s = visible.find((x) => x.id === id);
               if (s) void putSession({ ...s, projectId });
+            }}
+            onRename={(id, title) => {
+              const s = visible.find((x) => x.id === id);
+              if (!s) return;
+              // The root panel shows the session's title, so its node is renamed with it.
+              const rootNode = idx.byId.get(s.rootNodeId);
+              if (rootNode && rootNode.title === s.title) void putNode({ ...rootNode, title });
+              void putSession({ ...s, title });
             }}
             onDeleteProject={(id) => {
               const p = (projects ?? []).find((x) => x.id === id);
@@ -327,6 +425,15 @@ export function App() {
           <Columns />
         </main>
         <SelectionPopover />
+        {openingPdf && (
+          <OpenPdf
+            onClose={() => setOpeningPdf(null)}
+            onOpen={(doc) => {
+              setOpeningPdf(null);
+              void createSession(openingPdf.projectId, doc).then((s) => workspace.openSession(s.id));
+            }}
+          />
+        )}
         {showSettings && (
           <Settings
             onClose={() => setShowSettings(false)}

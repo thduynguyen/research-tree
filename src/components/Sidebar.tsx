@@ -53,7 +53,8 @@ function Branch({ node, depth, session, folds }: { node: TreeNode; depth: number
   const current = inOpenSession && ws.focus?.id === node.id;
   // Unless folded by hand, the line being read is open and the rest is closed.
   const open = folds.isOpen(`${session.id}:${node.id}`, onLine);
-  const count = (ws.idx.messagesOf.get(node.id) ?? []).length;
+  // Questions asked in a conversation. A note or a PDF has no number.
+  const asked = node.note !== undefined || node.doc ? null : (ws.idx.messagesOf.get(node.id) ?? []).filter((m) => m.role === 'user').length;
   return (
     <>
       <div className={`tree-row${onLine ? ' on-line' : ''}${current ? ' current' : ''}`} style={{ paddingLeft: depth * 14 }}>
@@ -68,7 +69,9 @@ function Branch({ node, depth, session, folds }: { node: TreeNode; depth: number
           onClick={() => (inOpenSession ? ws.select(node.id) : ws.openSession(session.id, node.id))}
         >
           <span className="name">“{node.title}”</span>
-          <span className="count">{count}</span>
+          {asked !== null && (
+            <span className="count" title={asked === 1 ? '1 question asked' : `${asked} questions asked`}>{asked}</span>
+          )}
         </button>
       </div>
       {open && kids.map((k) => <Branch key={k.id} node={k} depth={depth + 1} session={session} folds={folds} />)}
@@ -86,9 +89,11 @@ interface Props {
   onPin: (pinned: boolean) => void;
   onPeek: (peek: boolean) => void;
   onNew: (projectId?: string) => void;
+  onOpenPdf: (projectId?: string) => void;
   /** Creates the project and returns its id. */
   onNewProject: (name: string) => string;
   onMoveSession: (sessionId: string, projectId?: string) => void;
+  onRename: (sessionId: string, title: string) => void;
   onDeleteProject: (id: string) => void;
   onDelete: (id: string) => void;
   onPush: () => void;
@@ -107,6 +112,8 @@ export function Sidebar(p: Props) {
   const leave = useRef(0);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [naming, setNaming] = useState<string | null>(null);
+  // The session whose title is being typed over, after a double click on it.
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
   // The "move to project" menu: which session's is open, and whether it is on its new-project field.
   const [movingId, setMovingId] = useState<string | null>(null);
   const [moving, setMovingMode] = useState<'closed' | 'list' | 'new'>('closed');
@@ -169,13 +176,35 @@ export function Sidebar(p: Props) {
           ) : (
             <span className="twisty-gap" />
           )}
-          <button
-            className="tree-label"
-            aria-current={current ? 'true' : undefined}
-            onClick={() => (current ? ws.select(s.rootNodeId) : ws.openSession(s.id))}
-          >
-            <span className="name">{s.title}</span>
-          </button>
+          {renaming?.id === s.id ? (
+            <form
+              className="rename"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (renaming.value.trim()) p.onRename(s.id, renaming.value.trim());
+                setRenaming(null);
+              }}
+            >
+              <input
+                autoFocus
+                aria-label="Session title"
+                value={renaming.value}
+                onChange={(e) => setRenaming({ id: s.id, value: e.target.value })}
+                onBlur={() => setRenaming(null)}
+                onKeyDown={(e) => e.key === 'Escape' && setRenaming(null)}
+              />
+            </form>
+          ) : (
+            <button
+              className="tree-label"
+              aria-current={current ? 'true' : undefined}
+              title={`${s.title}\nDouble-click to rename`}
+              onClick={() => (current ? ws.select(s.rootNodeId) : ws.openSession(s.id))}
+              onDoubleClick={() => setRenaming({ id: s.id, value: s.title })}
+            >
+              <span className="name">{s.title}</span>
+            </button>
+          )}
           <span className="row-actions">
           {confirming !== s.id && (
             <div className="move" ref={movingId === s.id ? moveRef : undefined}>
@@ -326,6 +355,10 @@ export function Sidebar(p: Props) {
             <button className="tree-row new-session" onClick={() => p.onNew(project?.id)}>
               <span className="twisty-gap" aria-hidden="true">+</span>
               <span className="tree-label">New session</span>
+            </button>
+            <button className="tree-row new-session" onClick={() => p.onOpenPdf(project?.id)}>
+              <span className="twisty-gap" aria-hidden="true">+</span>
+              <span className="tree-label">Open a PDF</span>
             </button>
           </nav>
 
