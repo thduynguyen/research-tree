@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Read in Research Tree</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 24px; max-width: 520px; color: #16181d; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input { width: 100%; box-sizing: border-box; min-height: 36px; padding: 0 10px; border: 1px solid #c9ced8; border-radius: 8px; font: inherit; }
+  button { margin-top: 12px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 8px; background: #2f4ac6; color: #fff; font: inherit; cursor: pointer; }
+  p { color: #565d6b; }
+</style>
+</head>
+<body>
+  <label for="app">Where Research Tree runs</label>
+  <input id="app" spellcheck="false" placeholder="http://127.0.0.1:8765/">
+  <p>The address you open the app at. Leave it empty for the copy served by the local helper.</p>
+  <button id="save">Save</button>
+  <p id="status" role="status"></p>
+  <script src="options.js"></script>
+</body>
+</html>

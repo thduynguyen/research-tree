@@ -3,15 +3,22 @@ import { LanguageDescription } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { Compartment, EditorState } from '@codemirror/state';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { EditorView, keymap } from '@codemirror/view';
+import { Decoration, EditorView, keymap } from '@codemirror/view';
 import { Vim, vim } from '@replit/codemirror-vim';
 import { basicSetup } from 'codemirror';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { putNode } from '../db';
 import { listRoot, readWorkspaceFile, saveWorkspaceFile, type WorkspaceFile } from '../folder';
+import { locate } from '../text';
 import type { TreeNode } from '../types';
+import type { Mark } from './MessageBody';
+import { FRAME_SELECTION } from './SelectionPopover';
 
 const VIM_KEY = 'rt.vim';
+const TREE_KEY = 'rt.codeTree';
+
+/** Marks on a file's text are filed under this key, one per file. */
+export const codeKey = (path: string) => `code:${path}`;
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 
 /**
@@ -94,11 +101,110 @@ function Palette({ files, onPick, onClose }: { files: WorkspaceFile[]; onPick: (
   );
 }
 
+interface Dir {
+  dirs: Map<string, Dir>;
+  files: WorkspaceFile[];
+}
+
+/** The folder's files as a tree that folds: folders first, then files, each by name. */
+function FileTree({ files, current, onPick }: { files: WorkspaceFile[]; current?: string; onPick: (file: WorkspaceFile) => void }) {
+  const top = useMemo(() => {
+    const made: Dir = { dirs: new Map(), files: [] };
+    for (const file of files) {
+      const parts = file.name.split('/');
+      let dir = made;
+      for (const part of parts.slice(0, -1)) {
+        if (!dir.dirs.has(part)) dir.dirs.set(part, { dirs: new Map(), files: [] });
+        dir = dir.dirs.get(part)!;
+      }
+      dir.files.push(file);
+    }
+    return made;
+  }, [files]);
+  // Folders start folded, apart from the ones leading to the file being shown.
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const onPath = (path: string) => !!current && files.find((f) => f.path === current)?.name.startsWith(`${path}/`);
+  const level = (dir: Dir, prefix: string, depth: number): React.ReactNode => (
+    <>
+      {[...dir.dirs.keys()].sort().map((name) => {
+        const path = prefix + name;
+        const shown = open.has(path) || (!open.has(`-${path}`) && onPath(path));
+        return (
+          <div key={path}>
+            <button
+              type="button"
+              className="code-row"
+              style={{ paddingLeft: 8 + depth * 12 }}
+              aria-expanded={!!shown}
+              onClick={() => {
+                const next = new Set(open);
+                // A folder on the way to the open file is shown unless folded by hand, which is noted with a dash.
+                if (shown) {
+                  next.delete(path);
+                  next.add(`-${path}`);
+                } else {
+                  next.add(path);
+                  next.delete(`-${path}`);
+                }
+                setOpen(next);
+              }}
+            >
+              <span className="code-twisty" aria-hidden="true">{shown ? '▾' : '▸'}</span>
+              {name}
+            </button>
+            {shown && level(dir.dirs.get(name)!, `${path}/`, depth + 1)}
+          </div>
+        );
+      })}
+      {[...dir.files]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((file) => (
+          <button key={file.path} type="button" className={`code-row file${file.path === current ? ' on' : ''}`} style={{ paddingLeft: 8 + depth * 12 + 14 }} onClick={() => onPick(file)}>
+            {file.name.slice(prefix.length)}
+          </button>
+        ))}
+    </>
+  );
+  return <nav className="code-tree-list" aria-label="Files">{level(top, '', 0)}</nav>;
+}
+
+interface Props {
+  node: TreeNode;
+  /** The highlights and branches filed under a key: here, one file's. */
+  marksIn: (key: string) => Mark[];
+  onOpen: (childId: string, at: DOMRect) => void;
+  onHighlight: (id: string, at: DOMRect) => void;
+  onHover: (id: string | null, at?: DOMRect) => void;
+}
+
+/** Marks as the editor draws them: each a stretch of the file's text, found again by its words if the file has changed. */
+function decorate(text: string, marks: Mark[]) {
+  const ranges = [];
+  for (const m of marks) {
+    const found = m.quote ? locate(text, m.start, m.end, m.quote) : ([m.start, m.end] as const);
+    if (!found || found[0] >= found[1] || found[1] > text.length) continue;
+    const plain = !!m.color;
+    ranges.push(
+      Decoration.mark({
+        tagName: 'mark',
+        class: m.hidden ? 'detached' : m.active ? 'active' : '',
+        attributes: {
+          [plain ? 'data-hl' : 'data-child']: m.id,
+          ...(m.kind && !m.hidden ? { 'data-kind': m.kind } : {}),
+          ...(m.hidden ? {} : { style: `background-color: ${m.color ?? m.tint ?? 'var(--mark)'}` }),
+          title: plain ? 'Highlight. Select to change or remove it' : m.hint ?? 'Open this branch',
+        },
+      }).range(found[0], found[1]),
+    );
+  }
+  return Decoration.set(ranges, true);
+}
+
 /**
  * A folder of source code: one file shown at a time in an editor, with syntax
  * colours by language, a "go to file" box, optional vim keys, and saving.
  */
-export function CodeView({ node }: { node: TreeNode }) {
+export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props) {
   const root = node.code!.root;
   const path = node.code!.file;
   const host = useRef<HTMLDivElement>(null);
@@ -110,6 +216,14 @@ export function CodeView({ node }: { node: TreeNode }) {
   const [image, setImage] = useState('');
   const [vimOn, setVimOn] = useState(() => localStorage.getItem(VIM_KEY) === '1');
   const save = useRef<() => void>(() => undefined);
+  // The file tree beside the editor: kept open, or tucked away until the pointer is on its edge.
+  const [treePinned, setTreePinned] = useState(() => localStorage.getItem(TREE_KEY) !== '0');
+  const markSlot = useRef<Compartment | null>(null);
+  const [made, setMade] = useState(0);
+  const marks = path ? marksIn(codeKey(path)) : [];
+  const marksKey = marks.map((m) => `${m.id}:${m.start}:${m.end}:${m.active}:${!!m.hidden}:${m.color ?? ''}:${m.tint ?? ''}:${m.kind ?? ''}`).join('|');
+  const latest = useRef({ marks, node });
+  latest.current = { marks, node };
 
   useEffect(() => {
     void listRoot(root).then(setFiles, (e) => setStatus(`The folder could not be read: ${e instanceof Error ? e.message : String(e)}`));
@@ -143,6 +257,9 @@ export function CodeView({ node }: { node: TreeNode }) {
         if (new Uint8Array(bytes.slice(0, 4000)).includes(0)) return setStatus('This is not a text file.');
         const text = new TextDecoder().decode(bytes);
         const language = new Compartment();
+        const slot = new Compartment();
+        markSlot.current = slot;
+        let selecting = 0;
         const dark = matchMedia('(prefers-color-scheme: dark)').matches;
         save.current = () => {
           if (!made) return;
@@ -165,17 +282,44 @@ export function CodeView({ node }: { node: TreeNode }) {
               basicSetup,
               keymap.of([indentWithTab, { key: 'Mod-s', preventDefault: true, run: () => (save.current(), true) }]),
               language.of([]),
+              slot.of(EditorView.decorations.of(decorate(text, latest.current.marks))),
               ...(dark ? [oneDark] : []),
               EditorView.updateListener.of((update) => {
                 if (update.docChanged) {
                   setDirty(true);
                   setStatus('');
                 }
+                // A selection is offered to the popover as a place in this file's text.
+                if (update.selectionSet || update.focusChanged) {
+                  clearTimeout(selecting);
+                  selecting = window.setTimeout(() => {
+                    const editor = update.view;
+                    const { from, to } = editor.state.selection.main;
+                    const raw = editor.state.sliceDoc(from, to);
+                    const at = from < to && raw.trim() ? editor.coordsAtPos(to) : null;
+                    const start = from + (raw.length - raw.trimStart().length);
+                    window.dispatchEvent(
+                      new CustomEvent(FRAME_SELECTION, {
+                        detail: at && {
+                          nodeId: latest.current.node.id,
+                          messageId: codeKey(path),
+                          start,
+                          end: start + raw.trim().length,
+                          quote: raw.trim(),
+                          x: Math.min(Math.max(at.left, 200), window.innerWidth - 200),
+                          y: Math.min(Math.max(at.bottom + 8, 60), window.innerHeight - 60),
+                          clear: () => editor.dispatch({ selection: { anchor: to } }),
+                        },
+                      }),
+                    );
+                  }, 200);
+                }
               }),
             ],
           }),
         });
         view.current = made;
+        setMade((n) => n + 1);
         setDirty(false);
         setStatus('');
         const found = LanguageDescription.matchFilename(languages, path.split('/').pop() ?? '');
@@ -191,6 +335,13 @@ export function CodeView({ node }: { node: TreeNode }) {
       if (blob) URL.revokeObjectURL(blob);
     };
   }, [path, vimOn]);
+
+  // Marks are redrawn when they change.
+  useEffect(() => {
+    const editor = view.current;
+    if (editor && markSlot.current) editor.dispatch({ effects: markSlot.current.reconfigure(EditorView.decorations.of(decorate(editor.state.doc.toString(), latest.current.marks))) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marksKey, made]);
 
   // ":w" saves, as vim users expect.
   useEffect(() => {
@@ -209,6 +360,18 @@ export function CodeView({ node }: { node: TreeNode }) {
       }}
     >
       <div className="code-bar">
+        <button
+          type="button"
+          className="btn"
+          aria-pressed={treePinned}
+          title={treePinned ? 'Tuck the file list away until the pointer is on its edge' : 'Keep the file list open'}
+          onClick={() => {
+            setTreePinned(!treePinned);
+            localStorage.setItem(TREE_KEY, treePinned ? '0' : '1');
+          }}
+        >
+          Files
+        </button>
         <button type="button" className="btn code-file" title="Go to file (Cmd+P or Ctrl+P)" onClick={() => setFinding(true)}>
           {shown || 'Go to file…'}
           {dirty && <span className="dot" aria-label="unsaved changes" />}
@@ -227,13 +390,40 @@ export function CodeView({ node }: { node: TreeNode }) {
           vim
         </label>
       </div>
+      <div className="code-main">
+      {files && (
+        <div className={`code-tree${treePinned ? '' : ' auto'}`}>
+          <div className="code-tree-panel">
+            <FileTree files={files} current={path} onPick={open} />
+          </div>
+        </div>
+      )}
+      <div className="code-pane">
       {!path && (
         <p className="hint">
-          {files ? `${files.length} files in ${root}. ` : ''}Choose a file with the button above, or press Cmd+P (Ctrl+P) with the pointer in this panel.
+          {files ? `${files.length} files in ${root}. ` : ''}Choose a file from the list, or press Cmd+P (Ctrl+P) with the pointer in this panel.
         </p>
       )}
       {image && <div className="code-image"><img src={image} alt={shown} /></div>}
-      <div className="code-host" ref={host} hidden={!!image || !path} />
+      <div
+        className="code-host"
+        ref={host}
+        hidden={!!image || !path}
+        onClick={(e) => {
+          const mark = (e.target as HTMLElement).closest<HTMLElement>('mark[data-hl], mark[data-child]');
+          if (mark?.dataset.child) onOpen(mark.dataset.child, mark.getBoundingClientRect());
+          else if (mark?.dataset.hl) onHighlight(mark.dataset.hl, mark.getBoundingClientRect());
+        }}
+        onMouseOver={(e) => {
+          const mark = (e.target as HTMLElement).closest<HTMLElement>('mark[data-hl], mark[data-child]:not(.detached)');
+          if (mark) onHover((mark.dataset.hl ?? mark.dataset.child)!, mark.getBoundingClientRect());
+        }}
+        onMouseOut={(e) => {
+          if ((e.target as HTMLElement).closest('mark[data-hl], mark[data-child]')) onHover(null);
+        }}
+      />
+      </div>
+      </div>
       {finding && files && <Palette files={files} onPick={open} onClose={() => setFinding(false)} />}
     </div>
   );

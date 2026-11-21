@@ -58,8 +58,8 @@ Open **Settings** in the side panel.
   file" box (Cmd+P or Ctrl+P), optional vim keys, and saving.
   With such a server the app also reads web pages: a page is shown as it looks
   on its site, with nothing of it run, and can be highlighted, annotated and
-  asked about. A bookmark button in Settings sends the page you are on in your
-  browser to the app. It also offers a terminal: a full one, or one
+  asked about. The browser extension in `extension/` adds a toolbar icon that sends
+  the page you are on to the app; Settings has a bookmark button that does the same. It also offers a terminal: a full one, or one
   where each line is a command and its output is kept, to highlight and ask about.
 - **Demo.** A built-in stand-in that needs no key, for trying the interface.
 

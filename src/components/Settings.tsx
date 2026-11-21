@@ -166,7 +166,8 @@ export function Settings({ onClose, onPull, onPush, syncStatus }: Props) {
 
         <h3>Send pages from your browser</h3>
         <p className="hint">
-          Drag this button to your browser's bookmarks bar. On any page or PDF, click it to open that page here to
+          The browser extension in the project's <code>extension</code> folder adds a toolbar icon for this. Without it,
+          drag this button to your browser's bookmarks bar. On any page or PDF, click it to open that page here to
           read, highlight and discuss. Reading a web page needs the local helper; PDFs with a public link open without it.
         </p>
         <p>

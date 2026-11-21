@@ -74,6 +74,9 @@ export function SelectionPopover() {
     let timer = 0;
     const update = () => {
       clearTimeout(timer);
+      // Text in the code editor reports its own selection; this document's view of it is left out.
+      const node = document.getSelection()?.anchorNode;
+      if ((node?.nodeType === 1 ? (node as Element) : node?.parentElement)?.closest('.cm-editor')) return;
       timer = window.setTimeout(() => setTarget(readSelection()), 150);
     };
     const fromFrame = (e: Event) => setTarget((e as CustomEvent<Target | null>).detail);

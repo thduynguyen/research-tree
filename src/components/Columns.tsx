@@ -477,8 +477,10 @@ export function Columns() {
   const depths = [...(narrowWindow ? [0] : []), ...ws.levels.map((l) => l.depth)];
   const rootShown = rootPinned || rootPeek;
   // A PDF needs room to be read: its root column starts at 60% of the width, and keeps its own size.
-  const rootKey = root.doc ? 'pdfRoot' : '0';
-  const rootWidth: number | string | undefined = widths[rootKey] ?? (root.doc ? '60vw' : undefined);
+  // Something to read (a PDF, a web page, code) gets the wider share by default; a conversation does not.
+  const reading = !!(root.doc || root.web || root.code);
+  const rootKey = reading ? 'pdfRoot' : '0';
+  const rootWidth: number | string | undefined = widths[rootKey] ?? (reading ? '60vw' : undefined);
 
   return (
     <div className="stage" ref={stage}>

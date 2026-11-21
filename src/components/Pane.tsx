@@ -390,7 +390,7 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
       {node.doc && <div className="find-slot" ref={setFindSlot} />}
       <div className={`pane-body${liveShell || node.code ? ' with-shell' : ''}`}>
       {liveShell && <LiveTerminal node={node} />}
-      {node.code && <CodeView node={node} />}
+      {node.code && <CodeView node={node} marksIn={marksIn} onOpen={openMark} onHighlight={openHighlight} onHover={hoverHighlight} />}
       <div className="pane-scroll" ref={scroller}>
         {home && node.parentId && (
           <div className="origin">

@@ -65,8 +65,9 @@ interface Props {
 
 /**
  * A web page to read, shown as it looks on its site. It can be highlighted,
- * annotated and asked about like a PDF. It is not a browser: its links open in
- * the reader's own browser, except a link to a PDF, which opens here as a branch.
+ * annotated and asked about like a PDF. A link is followed in the panel, with
+ * back and forward; once the page has marks it stays, and a link opens as a
+ * branch from it. A link to a PDF opens in the PDF reader.
  */
 export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
   const ws = useWorkspace();
@@ -77,8 +78,52 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(0);
   // Read by the frame's listeners, which are set once per page.
-  const handlers = useRef({ onOpen, onHighlight, onHover, ws, node });
-  handlers.current = { onOpen, onHighlight, onHover, ws, node };
+  // The pages gone through in this panel by following links, for its back and forward.
+  const trail = useRef<{ list: string[]; at: number }>({ list: url ? [url] : [], at: 0 });
+  const [, redraw] = useState(0);
+  /** Shows another page in this panel. */
+  const show = async (next: string, record = true) => {
+    const t = trail.current;
+    // The page this panel started on is the first step, even if it was given after the panel opened.
+    if (!t.list.length && url) t.list = [url];
+    if (record) {
+      t.list = [...t.list.slice(0, t.at + 1), next];
+      t.at = t.list.length - 1;
+    }
+    redraw((n) => n + 1);
+    const now = await db.nodes.get(node.id);
+    if (!now) return;
+    // A panel named after its page is renamed with it; until the new page's title is known, by its address.
+    const named = !now.title || now.title === 'Web page' || now.title === now.web?.title || now.title === now.web?.url;
+    await putNode({ ...now, web: { url: next }, title: named ? next : now.title });
+    if (named && !now.parentId) {
+      const session = await db.sessions.filter((x) => x.rootNodeId === now.id && !x.deleted).first();
+      if (session) await putSession({ ...session, title: next });
+    }
+  };
+  /**
+   * Follows a link. A page with nothing marked on it is replaced in place. A page with marks stays:
+   * the linked page opens as a branch from the link, or, if this session already has it, is gone to.
+   */
+  const follow = (next: string, link?: { start: number; end: number; quote: string }) => {
+    const there = [...ws.idx.byId.values()].find((n) => n.id !== node.id && n.web?.url === next && (n.parentId === node.id || n.id === node.parentId));
+    if (there) return ws.select(there.id, { focus: true });
+    if (!marks.length) return void show(next);
+    if (link) return void ws.branch(node.id, WEB_KEY, link.start, link.end, link.quote, { web: { url: next } });
+    window.open(next, '_blank', 'noopener');
+  };
+  const parent = node.parentId ? ws.idx.byId.get(node.parentId) : undefined;
+  const step = (by: number) => {
+    const t = trail.current;
+    const at = t.at + by;
+    // Back from the first page of a branch is the page it was opened from.
+    if (at < 0 && parent?.web) return ws.select(parent.id, { focus: true });
+    if (at < 0 || at >= t.list.length) return;
+    t.at = at;
+    void show(t.list[at], false);
+  };
+  const handlers = useRef({ onOpen, onHighlight, onHover, ws, node, follow });
+  handlers.current = { onOpen, onHighlight, onHover, ws, node, follow };
 
   useEffect(() => {
     if (!url) return;
@@ -189,7 +234,14 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
         const start = before.toString().length;
         void h.ws.branch(h.node.id, WEB_KEY, start, start + quote.length, quote, { doc: { fingerprint: '', title: quote.trim() || pdf, url: pdf, pages: 0 } });
       }
-      // Any other link opens in the reader's own browser, as the page's base says.
+      // Any other link is followed here. With Cmd, Ctrl or Shift held it opens in the reader's own browser, as the page's base says.
+      if (pdf || e.metaKey || e.ctrlKey || e.shiftKey || !/^https?:/.test(link.href)) return;
+      e.preventDefault();
+      const before = doc.createRange();
+      before.selectNodeContents(body);
+      before.setEndBefore(link);
+      const start = before.toString().length;
+      h.follow(link.href.split('#')[0] === here ? link.href : link.href, quote.trim() ? { start, end: start + quote.length, quote } : undefined);
     });
     doc.addEventListener('mouseover', (e) => {
       const mark = markOf(e.target);
@@ -231,6 +283,8 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
     <div className="web">
       {url ? (
         <div className="web-bar">
+          <button type="button" className="btn" disabled={trail.current.at <= 0 && !parent?.web} title="Back" aria-label="Back" onClick={() => step(-1)}>‹</button>
+          <button type="button" className="btn" disabled={trail.current.at >= trail.current.list.length - 1} title="Forward" aria-label="Forward" onClick={() => step(1)}>›</button>
           <a href={url} target="_blank" rel="noopener noreferrer" title="Open this page in your browser">{url}</a>
         </div>
       ) : (
