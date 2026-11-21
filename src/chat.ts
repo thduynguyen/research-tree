@@ -87,7 +87,12 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
       for (let up = root.parentId ? index.byId.get(root.parentId) : undefined; up; up = up.parentId ? index.byId.get(up.parentId) : undefined) root = up;
       const session = (await db.sessions.filter((s) => s.rootNodeId === root.id && !s.deleted).first()) ?? undefined;
       const project = session?.projectId ? await db.projects.get(session.projectId) : undefined;
-      extra = { research_tree: { level: node.access, folder: project?.name ?? 'Inbox' } };
+      // A server that keeps one running session per conversation needs only the new message:
+      // exactly as typed, with the passage ahead of a branch's first question.
+      const passage = !hadMessages && node.anchor && !text.startsWith('/') ? `[Side branch on the passage: "${node.anchor.quote}"]\n\n` : '';
+      extra = {
+        research_tree: { level: node.access, folder: project?.name ?? 'Inbox', session: node.id, parent: node.parentId ?? undefined, message: passage + text },
+      };
     }
     await provider.stream({
       key,
