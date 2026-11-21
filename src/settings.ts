@@ -13,7 +13,7 @@ export interface Settings {
   models: Partial<Record<ProviderId, ModelInfo[]>>;
   lastModel?: ModelRef;
   /** A server with OpenAI-format endpoints, such as a model running on this computer. Its key is optional. */
-  custom?: { url: string; levels?: string[] };
+  custom?: { url: string; levels?: string[]; /** The server keeps the app's records in a folder. */ folder?: boolean };
   github?: GithubConfig;
 }
 

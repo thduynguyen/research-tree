@@ -49,7 +49,10 @@ function nodeMarkdown(idx: TreeIndex, node: TreeNode, depth: number): string {
   return lines.join('\n');
 }
 
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'session';
+/** A session as readable Markdown. */
+export const sessionMarkdown = (idx: TreeIndex, session: Session, root: TreeNode) => `# ${session.title}\n\n${nodeMarkdown(idx, root, 0)}`;
+
+export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'session';
 
 /**
  * The files written to git: db.json is what the app reads back; the Markdown
@@ -65,7 +68,7 @@ export function exportFiles(dump: DbDump): Record<string, string> {
     const project = dump.projects?.find((p) => p.id === s.projectId && !p.deleted);
     const folder = project ? `${slug(project.name)}/` : '';
     files[`research-tree/sessions/${folder}${slug(s.title)}-${s.id.slice(0, 8)}.md`] =
-      `# ${s.title}\n\n${nodeMarkdown(idx, root, 0)}`;
+      sessionMarkdown(idx, s, root);
   }
   return files;
 }

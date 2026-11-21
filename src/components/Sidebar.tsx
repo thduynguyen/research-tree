@@ -84,6 +84,7 @@ interface Props {
   peek: boolean;
   dirty: boolean;
   syncStatus: string;
+  pushLabel: string;
   gitReady: boolean;
   projects: Project[];
   onPin: (pinned: boolean) => void;
@@ -365,7 +366,7 @@ export function Sidebar(p: Props) {
           <div className="sidebar-foot">
             {p.gitReady ? (
               <button className="btn" onClick={p.onPush}>
-                Push to git{p.dirty && <span className="dot" aria-label="unpushed changes" />}
+                {p.pushLabel}{p.dirty && <span className="dot" aria-label="unpushed changes" />}
               </button>
             ) : (
               <button className="btn" onClick={p.onSettings}>Set up git sync</button>

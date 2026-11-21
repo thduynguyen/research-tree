@@ -34,7 +34,8 @@ export const db = new ResearchDb();
 export const uid = () => crypto.randomUUID();
 
 /** Every local write goes through these helpers so the "unpushed" flag stays right. */
-const markDirty = () => db.meta.put({ key: 'dirty', value: true });
+// 'dirty' is for the git push in the browser; 'unsaved' is for the folder on this computer, when there is one.
+const markDirty = () => db.meta.bulkPut([{ key: 'dirty', value: true }, { key: 'unsaved', value: true }]);
 
 export async function putSession(s: Session) {
   await db.sessions.put({ ...s, updatedAt: Date.now() });
@@ -129,7 +130,7 @@ export async function removeBranches(nodeIds: string[]) {
       s.deleted = true;
       s.updatedAt = t;
     });
-    await db.meta.put({ key: 'dirty', value: true });
+    await db.meta.bulkPut([{ key: 'dirty', value: true }, { key: 'unsaved', value: true }]);
   });
 }
 

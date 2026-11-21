@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createSession, db, putHighlight, putNode, putProject, putSession, removeBranches, uid } from '../db';
 import { getSettings, useSettings } from '../settings';
+import { gitSave, gitState, syncFolder, type GitState } from '../folder';
 import { pull, push } from '../sync';
 import { buildIndex, pathFrom, shorten } from '../tree';
 import type { TreeNode } from '../types';
@@ -122,6 +123,41 @@ export function App() {
       }
     } catch (e) {
       setSyncStatus(`Sync failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, []);
+
+  // With a local server that keeps a folder, every change is written there shortly after it is made.
+  const folder = !!settings.custom?.folder;
+  const unsaved = useTable(() => db.meta.get('unsaved').then((row) => row?.value === true), shown) === true;
+  const [git, setGit] = useState<GitState | null>(null);
+  const [folderStatus, setFolderStatus] = useState('');
+  const saveToFolder = useCallback(async () => {
+    try {
+      await syncFolder();
+      setGit(await gitState());
+      setFolderStatus('');
+    } catch (e) {
+      setFolderStatus(`Not saved to the folder: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, []);
+  useEffect(() => {
+    if (folder && shown) void saveToFolder();
+  }, [folder, shown, saveToFolder]);
+  useEffect(() => {
+    if (!folder || !shown || !unsaved) return;
+    const timer = setTimeout(() => void saveToFolder(), 2000);
+    return () => clearTimeout(timer);
+  }, [folder, shown, unsaved, saveToFolder]);
+  const commitFolder = useCallback(async () => {
+    setFolderStatus('Committing…');
+    try {
+      await syncFolder();
+      const state = await gitSave();
+      setGit(state);
+      const did = (state.done ?? []).join(' and ');
+      setFolderStatus(did ? `${did[0].toUpperCase()}${did.slice(1)} at ${new Date().toLocaleTimeString()}.` : 'Nothing new to commit.');
+    } catch (e) {
+      setFolderStatus(`Commit failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, []);
 
@@ -365,9 +401,10 @@ export function App() {
               setPeek(false);
             }}
             onPeek={setPeek}
-            dirty={dirty}
-            syncStatus={syncStatus}
-            gitReady={!!settings.github}
+            dirty={folder ? !!git && git.changed + git.ahead > 0 : dirty}
+            syncStatus={folder ? folderStatus || (git ? `Saved in ${git.workspace.replace(/^\/(Users|home)\/[^/]+/, '~')}.${git.changed ? ` ${git.changed} files not committed.` : git.ahead ? ' Not pushed yet.' : ''}` : 'Saving to the folder…') : syncStatus}
+            gitReady={folder || !!settings.github}
+            pushLabel={folder ? (git?.remote === false ? 'Commit' : 'Commit and push') : 'Push to git'}
             projects={(projects ?? []).filter((p) => !p.deleted)}
             onNew={(projectId) => void createSession(projectId).then((s) => workspace.openSession(s.id))}
             onOpenPdf={(projectId) => setOpeningPdf({ projectId })}
@@ -397,7 +434,7 @@ export function App() {
               const s = visible.find((x) => x.id === id);
               if (s) void putSession({ ...s, deleted: true });
             }}
-            onPush={() => void runSync('push')}
+            onPush={() => void (folder ? commitFolder() : runSync('push'))}
             onSettings={() => setShowSettings(true)}
           />
         </div>

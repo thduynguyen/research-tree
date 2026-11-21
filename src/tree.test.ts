@@ -301,3 +301,60 @@ describe('sync files', () => {
     expect(md).toContain('> Anchored to: “quote-c”');
   });
 });
+
+import { dumpFromFiles, folderFiles } from './folder';
+
+describe('folder storage', () => {
+  const at = (n: number) => ({ createdAt: n, updatedAt: n });
+  const dump: DbDump = {
+    version: 1,
+    projects: [{ id: 'p1', name: 'Vision: papers', ...at(1) }],
+    sessions: [
+      { id: 'sess-aaaa-1', title: 'Attention Is All You Need', rootNodeId: 'n1', projectId: 'p1', ...at(1) },
+      { id: 'sess-bbbb-2', title: 'Loose ideas', rootNodeId: 'n3', ...at(2) },
+      { id: 'sess-cccc-3', title: 'Gone', rootNodeId: 'n4', deleted: true, ...at(3) },
+    ] as DbDump['sessions'],
+    nodes: [
+      { id: 'n1', parentId: null, title: 'root', ...at(1) },
+      { id: 'n2', parentId: 'n1', title: 'branch', ...at(2) },
+      { id: 'n3', parentId: null, title: 'ideas', ...at(3) },
+      { id: 'n4', parentId: null, title: 'gone', deleted: true, ...at(4) },
+    ] as DbDump['nodes'],
+    messages: [
+      { id: 'm1', nodeId: 'n2', role: 'user', content: 'why?', ...at(5) },
+      { id: 'm2', nodeId: 'n4', role: 'user', content: '', deleted: true, ...at(6) },
+    ] as DbDump['messages'],
+    highlights: [],
+  };
+
+  it('writes one folder per session inside its project, and Inbox without one', () => {
+    const paths = Object.keys(folderFiles(dump)).sort();
+    expect(paths).toEqual([
+      '.research-tree/index.json',
+      'Inbox/loose-ideas-sess-bbb/session.json',
+      'Inbox/loose-ideas-sess-bbb/session.md',
+      'Vision- papers/attention-is-all-you-need-sess-aaa/session.json',
+      'Vision- papers/attention-is-all-you-need-sess-aaa/session.md',
+    ]);
+  });
+
+  it('puts a branch in its session and keeps deleted records in the index', () => {
+    const files = folderFiles(dump);
+    const session = JSON.parse(files['Vision- papers/attention-is-all-you-need-sess-aaa/session.json']);
+    expect(session.nodes.map((n: { id: string }) => n.id)).toEqual(['n1', 'n2']);
+    expect(session.messages.map((m: { id: string }) => m.id)).toEqual(['m1']);
+    const index = JSON.parse(files['.research-tree/index.json']);
+    expect(index.rest.nodes.map((n: { id: string }) => n.id)).toEqual(['n4']);
+    expect(index.sessions).toHaveLength(3);
+  });
+
+  it('reads back exactly what it wrote', () => {
+    const back = dumpFromFiles(folderFiles(dump))!;
+    const ids = (list: { id: string }[]) => list.map((x) => x.id).sort();
+    expect(ids(back.nodes)).toEqual(ids(dump.nodes));
+    expect(ids(back.messages)).toEqual(ids(dump.messages));
+    expect(ids(back.sessions)).toEqual(ids(dump.sessions));
+    expect(back.nodes.find((n) => n.id === 'n2')).toEqual(dump.nodes.find((n) => n.id === 'n2'));
+    expect(dumpFromFiles({})).toBeNull();
+  });
+});

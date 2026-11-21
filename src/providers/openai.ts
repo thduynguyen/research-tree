@@ -61,15 +61,16 @@ export const cleanUrl = (url: string) => url.trim().replace(/\/+$/, '');
  */
 /**
  * Some local servers can do more than answer: read a project folder, or change
- * files and run commands. Such a server lists the levels it offers; others do not answer this.
+ * files and run commands, and keep the app's records in a folder. Such a server
+ * says what it offers; others do not answer this.
  */
-export async function accessLevels(url: string, key: string): Promise<string[]> {
+export async function serverExtras(url: string, key: string): Promise<{ levels: string[]; folder: boolean }> {
   try {
     const res = await fetch(`${cleanUrl(url)}/research-tree`, { headers: auth(key) });
     const body = res.ok ? await res.json() : null;
-    return Array.isArray(body?.levels) ? body.levels.filter((l: unknown) => typeof l === 'string') : [];
+    return { levels: Array.isArray(body?.levels) ? body.levels.filter((l: unknown) => typeof l === 'string') : [], folder: body?.folder === true };
   } catch {
-    return [];
+    return { levels: [], folder: false };
   }
 }
 
