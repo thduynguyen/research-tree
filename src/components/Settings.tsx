@@ -166,10 +166,25 @@ export function Settings({ onClose, onPull, onPush, syncStatus }: Props) {
 
         <h3>Send pages from your browser</h3>
         <p className="hint">
-          The browser extension in the project's <code>extension</code> folder adds a toolbar icon for this. Without it,
-          drag this button to your browser's bookmarks bar. On any page or PDF, click it to open that page here to
-          read, highlight and discuss. Reading a web page needs the local helper; PDFs with a public link open without it.
+          A toolbar icon that opens the page or PDF you are on here, to read, highlight and discuss. It also adds
+          "Read link in Research Tree" to the right-click menu on links. Reading a web page needs the local helper; PDFs
+          with a public link open without it.
         </p>
+        <div className="card-static">
+          <strong>Install the extension (Chrome, Edge, Brave)</strong>
+          <ol className="steps">
+            <li>Get the app's source if you do not have it: <code>git clone https://github.com/thduynguyen/research-tree</code></li>
+            <li>Open <code>chrome://extensions</code> in a new tab and turn on <strong>Developer mode</strong>, at the top right.</li>
+            <li>Choose <strong>Load unpacked</strong> and pick the <code>extension</code> folder inside the source.</li>
+            <li>Click the puzzle-piece button in the toolbar and pin <strong>Read in Research Tree</strong>.</li>
+            <li>
+              It sends pages to <code>http://127.0.0.1:8765/</code>. If you use the app at another address
+              {location.origin.startsWith('http://127.0.0.1:8765') ? '' : <> (this one is <code>{location.origin}/</code>)</>}, right-click the icon,
+              choose Options, and enter it.
+            </li>
+          </ol>
+        </div>
+        <p className="hint">Without the extension, drag this button to your bookmarks bar; clicking it does the same.</p>
         <p>
           <a
             className="bookmarklet"

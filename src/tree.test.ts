@@ -372,3 +372,22 @@ describe('go to file', () => {
     expect(rank('wkspc', ['src/workspace.ts', 'src/components/WebView.tsx'])[0]).toBe('src/workspace.ts');
   });
 });
+
+import { lineDiff } from './text';
+
+describe('showing a change', () => {
+  it('marks dropped and added lines and keeps the lines around them', () => {
+    const lines = lineDiff('a\nb\nc', 'a\nB\nc').map((l) => `${l.kind}:${l.text}`);
+    expect(lines).toEqual(['same:a', 'drop:b', 'add:B', 'same:c']);
+  });
+  it('shows a new file as all added', () => {
+    expect(lineDiff('', 'x\ny').every((l) => l.kind === 'add')).toBe(true);
+  });
+  it('leaves out long unchanged stretches', () => {
+    const before = Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n');
+    const after = before.replace('line 15', 'changed');
+    const out = lineDiff(before, after);
+    expect(out.length).toBeLessThan(12);
+    expect(out.filter((l) => l.text === '…')).toHaveLength(2);
+  });
+});

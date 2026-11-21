@@ -12,6 +12,11 @@ export interface Approval {
   summary: string;
   /** The full request, for the user who wants to read it. */
   detail: string;
+  /** The tool to be used and what it is given, when the server says: enough to show a change to a file as a diff. */
+  tool?: string;
+  input?: Record<string, unknown>;
+  /** The folder the work happens in, to show files by their short names. */
+  folder?: string;
 }
 
 export interface StreamRequest {

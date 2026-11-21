@@ -77,6 +77,8 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
   const [status, setStatus] = useState('');
   const frame = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(0);
+  // The pick last followed, so that each is followed once.
+  const followed = useRef(-1);
   // Read by the frame's listeners, which are set once per page.
   // The pages gone through in this panel by following links, for its back and forward.
   const trail = useRef<{ list: string[]; at: number }>({ list: url ? [url] : [], at: 0 });
@@ -273,11 +275,22 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
       const found = m.quote ? locate(all, m.start, m.end, m.quote) : ([m.start, m.end] as const);
       if (found) wrapRange(body, { ...m, start: found[0], end: found[1] });
     }
-    // The passage of the branch being looked at is brought into view.
-    const active = marks.find((m) => m.active && !m.color);
-    if (active && ws.picked?.id === active.id) body.querySelector(`mark[data-child="${active.id}"]`)?.scrollIntoView({ block: 'center' });
+    // The passage of a branch picked on purpose is brought into view: once per pick, and only if it
+    // is not on screen already, so that marking a passage never moves the page under the reader.
+    const el = frame.current;
+    const scroller = el?.closest<HTMLElement>('.pane-scroll');
+    const pick = ws.picked;
+    if (!el || !scroller || !pick || pick.n === followed.current || Date.now() - pick.at > 2000) return;
+    const mark = body.querySelector<HTMLElement>(`mark[data-child="${pick.id}"]`);
+    if (!mark) return;
+    followed.current = pick.n;
+    const box = scroller.getBoundingClientRect();
+    const top = el.getBoundingClientRect().top + mark.getBoundingClientRect().top;
+    const bottom = top + mark.getBoundingClientRect().height;
+    if (top >= box.top + 8 && bottom <= box.bottom - 8) return;
+    scroller.scrollTo({ top: scroller.scrollTop + top - box.top - scroller.clientHeight / 3, behavior: 'auto' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [marksKey, ready]);
+  }, [marksKey, ready, ws.picked?.n]);
 
   return (
     <div className="web">

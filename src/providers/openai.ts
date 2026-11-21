@@ -39,7 +39,14 @@ function client(base: () => string, keep: (id: string) => boolean) {
         if (event?.error) throw new Error(String(event.error.message ?? event.error));
         const approval = event?.research_tree?.approval;
         if (approval?.id) {
-          onApproval?.({ id: String(approval.id), summary: String(approval.summary ?? ''), detail: String(approval.detail ?? '') });
+          onApproval?.({
+            id: String(approval.id),
+            summary: String(approval.summary ?? ''),
+            detail: String(approval.detail ?? ''),
+            tool: typeof approval.tool === 'string' ? approval.tool : undefined,
+            input: approval.input && typeof approval.input === 'object' ? approval.input : undefined,
+            folder: typeof approval.folder === 'string' ? approval.folder : undefined,
+          });
           continue;
         }
         const delta = event?.choices?.[0]?.delta?.content;

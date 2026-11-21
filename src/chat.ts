@@ -7,7 +7,15 @@ import { SYSTEM_PROMPT, buildContext, buildIndex, shorten } from './tree';
 import type { Message, ModelRef } from './types';
 
 /** Replies being streamed right now, by message id. Kept out of the database until done. */
-const live = new Map<string, { nodeId: string; text: string; approval?: Approval }>();
+interface LiveReply {
+  nodeId: string;
+  text: string;
+  approval?: Approval;
+  /** Steps the user has said need no more asking, for the rest of this reply. */
+  allowAll?: boolean;
+  allowFiles?: Set<string>;
+}
+const live = new Map<string, LiveReply>();
 const aborters = new Map<string, AbortController>();
 const listeners = new Set<() => void>();
 let version = 0;
@@ -34,6 +42,9 @@ export function useLive() {
   return live;
 }
 
+/** Announced on the window when files in the workspace may have changed. */
+export const FILES_CHANGED = 'rt-files-changed';
+
 /** What a reply from the shell is labelled with, in place of a model. */
 const SHELL: ModelRef = { provider: 'custom', model: 'shell' };
 
@@ -43,11 +54,23 @@ export function pendingApproval(nodeId: string): Approval | undefined {
   return undefined;
 }
 
-/** Sends the user's answer and takes the question off the screen. */
-export async function answerApproval(nodeId: string, allow: boolean) {
+/** The file a step would change, if it is a change to a file. */
+export const fileOf = (approval: Approval): string | undefined => {
+  const path = approval.input?.file_path ?? approval.input?.notebook_path;
+  return /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(approval.tool ?? '') && typeof path === 'string' ? path : undefined;
+};
+
+/**
+ * Sends the user's answer and takes the question off the screen. With a scope, the same answer is
+ * given without asking to the rest of this reply's changes to that file, or to all of its steps.
+ */
+export async function answerApproval(nodeId: string, allow: boolean, scope?: 'file' | 'all') {
   for (const entry of live.values()) {
     if (entry.nodeId !== nodeId || !entry.approval) continue;
     const { id } = entry.approval;
+    const file = fileOf(entry.approval);
+    if (allow && scope === 'all') entry.allowAll = true;
+    if (allow && scope === 'file' && file) (entry.allowFiles ??= new Set()).add(file);
     entry.approval = undefined;
     notify();
     await answerStep(id, allow).catch(() => undefined);
@@ -86,7 +109,7 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
 
   const controller = new AbortController();
   aborters.set(nodeId, controller);
-  const entry: { nodeId: string; text: string; approval?: Approval } = { nodeId, text: '' };
+  const entry: LiveReply = { nodeId, text: '' };
   live.set(reply.id, entry);
   notify();
 
@@ -156,6 +179,9 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
       extra,
       signal: controller.signal,
       onApproval: (approval) => {
+        // Already allowed for the rest of this reply: answered without asking again.
+        const file = fileOf(approval);
+        if (entry.allowAll || (file && entry.allowFiles?.has(file))) return void answerStep(approval.id, true).catch(() => undefined);
         entry.approval = approval;
         notify();
       },
@@ -167,6 +193,8 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
   } catch (e) {
     if (!controller.signal.aborted) error = e instanceof Error ? e.message : String(e);
   } finally {
+    // A command or a model working in the folder may have changed files that are open in a panel.
+    if (shell || (node.access && node.access !== 'ask' && node.access !== 'read')) window.dispatchEvent(new Event(FILES_CHANGED));
     await putMessage({ ...reply, content: entry.text, error });
     live.delete(reply.id);
     aborters.delete(nodeId);

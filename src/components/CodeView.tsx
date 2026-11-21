@@ -7,6 +7,7 @@ import { Decoration, EditorView, keymap } from '@codemirror/view';
 import { Vim, vim } from '@replit/codemirror-vim';
 import { basicSetup } from 'codemirror';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { FILES_CHANGED } from '../chat';
 import { putNode } from '../db';
 import { listRoot, readWorkspaceFile, saveWorkspaceFile, type WorkspaceFile } from '../folder';
 import { fuzzyScore, locate } from '../text';
@@ -309,6 +310,27 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
       if (blob) URL.revokeObjectURL(blob);
     };
   }, [path, vimOn]);
+
+  // A command or a model may have changed the open file on disk: it is read again, unless there are unsaved edits here.
+  const dirtyNow = useRef(dirty);
+  dirtyNow.current = dirty;
+  useEffect(() => {
+    const refresh = async () => {
+      const editor = view.current;
+      if (!editor || !path || dirtyNow.current) return;
+      try {
+        const text = new TextDecoder().decode(await readWorkspaceFile(path));
+        if (view.current !== editor || text === editor.state.doc.toString()) return;
+        editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: text } });
+        setDirty(false);
+        setStatus('Reloaded: the file changed on disk.');
+      } catch {
+        // The file may be gone; what is shown stays.
+      }
+    };
+    window.addEventListener(FILES_CHANGED, refresh);
+    return () => window.removeEventListener(FILES_CHANGED, refresh);
+  }, [path]);
 
   // Marks are redrawn when they change.
   useEffect(() => {

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { answerApproval, isBusy, pendingApproval, sendMessage, stop, useLive } from '../chat';
+import { answerApproval, fileOf, isBusy, pendingApproval, sendMessage, stop, useLive } from '../chat';
+import type { Approval } from '../providers';
+import { lineDiff } from '../text';
 import { slashCommands } from '../folder';
 import { realProviders } from '../providers';
 import { DEMO_MODEL, defaultModel, isReady, useSettings } from '../settings';
@@ -17,6 +19,44 @@ function MessageText({ text }: { text: string }) {
   return (
     <div className="approval-what">
       {text.split('`').map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part))}
+    </div>
+  );
+}
+
+/** What a step would do, shown as it would change the file when it is a change to one; otherwise the request as given. */
+function Change({ approval }: { approval: Approval }) {
+  const { tool, input } = approval;
+  const text = (key: string) => (typeof input?.[key] === 'string' ? (input[key] as string) : '');
+  const pieces =
+    tool === 'Edit'
+      ? [{ before: text('old_string'), after: text('new_string') }]
+      : tool === 'MultiEdit' && Array.isArray(input?.edits)
+        ? (input.edits as Record<string, unknown>[]).map((e) => ({ before: String(e.old_string ?? ''), after: String(e.new_string ?? '') }))
+        : tool === 'Write'
+          ? [{ before: '', after: text('content') }]
+          : null;
+  if (!pieces) {
+    return (
+      <details>
+        <summary>Details</summary>
+        <pre>{approval.detail}</pre>
+      </details>
+    );
+  }
+  return (
+    <div className="diff" aria-label="Proposed change">
+      {tool === 'Write' && <div className="diff-note">The whole file would be written as below.</div>}
+      {pieces.map((piece, i) => (
+        <pre key={i}>
+          {lineDiff(piece.before, piece.after).map((line, n) => (
+            <span key={n} className={line.kind}>
+              {line.kind === 'add' ? '+ ' : line.kind === 'drop' ? '- ' : '  '}
+              {line.text}
+              {'\n'}
+            </span>
+          ))}
+        </pre>
+      ))}
     </div>
   );
 }
@@ -168,13 +208,18 @@ function ChatComposer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean 
         <div className="approval" role="alertdialog" aria-label="Permission needed">
           <div className="approval-ask">Allow this step?</div>
           <MessageText text={approval.summary} />
-          <details>
-            <summary>Details</summary>
-            <pre>{approval.detail}</pre>
-          </details>
-          <div className="composer-row">
+          <Change approval={approval} />
+          <div className="composer-row approval-buttons">
             <button type="button" className="btn primary" onClick={() => void answerApproval(node.id, true)}>Allow</button>
             <button type="button" className="btn" onClick={() => void answerApproval(node.id, false)}>Decline</button>
+            {fileOf(approval) && (
+              <button type="button" className="btn" title="Allow this and the rest of this reply's changes to this file" onClick={() => void answerApproval(node.id, true, 'file')}>
+                Allow all for this file
+              </button>
+            )}
+            <button type="button" className="btn" title="Allow this and everything else in this reply, without asking" onClick={() => void answerApproval(node.id, true, 'all')}>
+              Allow all
+            </button>
           </div>
         </div>
       )}
