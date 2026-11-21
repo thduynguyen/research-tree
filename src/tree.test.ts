@@ -358,3 +358,17 @@ describe('folder storage', () => {
     expect(dumpFromFiles({})).toBeNull();
   });
 });
+
+import { fuzzyScore } from './components/CodeView';
+
+describe('go to file', () => {
+  const rank = (typed: string, paths: string[]) => paths.filter((p) => fuzzyScore(p, typed) >= 0).sort((a, b) => fuzzyScore(b, typed) - fuzzyScore(a, typed));
+  it('needs every typed letter, in order', () => {
+    expect(fuzzyScore('src/chat.ts', 'chts')).toBeGreaterThan(0);
+    expect(fuzzyScore('src/chat.ts', 'tsch')).toBe(-1);
+  });
+  it('puts a match in the file name ahead of one spread over folders', () => {
+    expect(rank('pane', ['src/components/Handle.tsx', 'src/components/Pane.tsx', 'spa/new/e.ts'])[0]).toBe('src/components/Pane.tsx');
+    expect(rank('wkspc', ['src/workspace.ts', 'src/components/WebView.tsx'])[0]).toBe('src/workspace.ts');
+  });
+});

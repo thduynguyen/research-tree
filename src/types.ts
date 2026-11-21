@@ -91,6 +91,8 @@ export interface TreeNode {
    * server offers a choice. Absent means the least: answer only.
    */
   access?: string;
+  /** Present when the node is a folder of source code in the workspace: its place there, and the file being shown. */
+  code?: { root: string; file?: string };
   /** Present when the node is a web page read in the app. An empty address is a browser not yet pointed anywhere. */
   web?: { url: string; title?: string };
   /**

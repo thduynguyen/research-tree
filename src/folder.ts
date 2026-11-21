@@ -170,6 +170,14 @@ export const WORKSPACE = 'workspace:';
 export const listWorkspace = (folder: string) =>
   call<{ files: WorkspaceFile[] }>(`list?folder=${encodeURIComponent(folder)}`).then((body) => body.files);
 
+/** The files under any folder of the workspace, named from that folder. */
+export const listRoot = (root: string) => call<{ files: WorkspaceFile[] }>(`list?root=${encodeURIComponent(root)}`).then((body) => body.files);
+
+export const saveWorkspaceFile = (path: string, content: string) => call<{ ok: boolean }>('file', { path, content });
+
+/** Clones a git repository into a folder of the workspace, and answers with that folder's place in it. */
+export const cloneRepo = (url: string, into: string) => call<{ root: string }>('clone', { url, into }).then((body) => body.root);
+
 export async function readWorkspaceFile(path: string): Promise<ArrayBuffer> {
   const s = getSettings();
   const key = s.keys.custom;

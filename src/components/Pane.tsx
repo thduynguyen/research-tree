@@ -5,6 +5,7 @@ import { kindLabel, pathFrom, preview, summarize } from '../tree';
 import { MAX_PINNED, freshNotes, useWorkspace } from '../workspace';
 import { Composer } from './Composer';
 import { LiveTerminal } from './LiveTerminal';
+import { CodeView } from './CodeView';
 import { WebView } from './WebView';
 import { IconButton } from './Icon';
 import { MessageBody } from './MessageBody';
@@ -97,7 +98,7 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
   };
   const isNote = node.note !== undefined;
   // A conversation can be shrunk to a few lines, like a note, and expanded again.
-  const isChat = !isNote && !node.doc && !node.web;
+  const isChat = !isNote && !node.doc && !node.web && !node.code;
   // A terminal panel is a full terminal unless switched to the saved, one-command-at-a-time kind.
   const isTerminal = node.terminal !== undefined;
   const [logMode, setLogMode] = useState(false);
@@ -387,8 +388,9 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
       </header>
 
       {node.doc && <div className="find-slot" ref={setFindSlot} />}
-      <div className={`pane-body${liveShell ? ' with-shell' : ''}`}>
+      <div className={`pane-body${liveShell || node.code ? ' with-shell' : ''}`}>
       {liveShell && <LiveTerminal node={node} />}
+      {node.code && <CodeView node={node} />}
       <div className="pane-scroll" ref={scroller}>
         {home && node.parentId && (
           <div className="origin">

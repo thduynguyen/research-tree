@@ -91,6 +91,8 @@ interface Props {
   onPeek: (peek: boolean) => void;
   onNew: (projectId?: string) => void;
   onOpenPdf: (projectId?: string) => void;
+  /** Clones a repository and opens its code; absent when no local server keeps a folder. */
+  onCode?: (projectId?: string) => void;
   /** Opens a browser panel; absent when no local server can fetch pages. */
   onBrowser?: (projectId?: string) => void;
   /** Opens the project's folder in VS Code; absent without a local server. */
@@ -367,6 +369,12 @@ export function Sidebar(p: Props) {
               <span className="twisty-gap" aria-hidden="true">+</span>
               <span className="tree-label">Open a PDF</span>
             </button>
+            {p.onCode && (
+              <button className="tree-row new-session" onClick={() => p.onCode!(project?.id)}>
+                <span className="twisty-gap" aria-hidden="true">+</span>
+                <span className="tree-label">Code</span>
+              </button>
+            )}
             {p.onBrowser && (
               <button className="tree-row new-session" onClick={() => p.onBrowser!(project?.id)}>
                 <span className="twisty-gap" aria-hidden="true">+</span>

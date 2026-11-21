@@ -53,6 +53,9 @@ Open **Settings** in the side panel.
   project's files, changing them and running commands (asking first, or not),
   keeping sessions there as files, and running a shell command you type after
   `!`. The choice appears under the message box and is off by default.
+  With such a server the side panel can also clone a git repository into a
+  session's folder and show its code: an editor with syntax colours, a "go to
+  file" box (Cmd+P or Ctrl+P), optional vim keys, and saving.
   With such a server the side panel also offers a browser, which reads web
   pages without running their scripts: a page you highlight stays in the tree,
   and its links then open as branches. It also offers a terminal: a full one, or one

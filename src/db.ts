@@ -69,7 +69,7 @@ export async function putMessage(m: Message) {
 
 /** A new session; with `doc` its root is a PDF to read, otherwise an empty chat. */
 /** `kind` makes the session's root something other than a conversation: a terminal or a web page, with its own title. */
-export async function createSession(projectId?: string, doc?: DocRef, kind?: Pick<TreeNode, 'terminal' | 'web'> & { title: string }): Promise<Session> {
+export async function createSession(projectId?: string, doc?: DocRef, kind?: Pick<TreeNode, 'terminal' | 'web' | 'code'> & { title: string }): Promise<Session> {
   const t = Date.now();
   const title = doc?.title ?? kind?.title ?? 'New session';
   const root: TreeNode = { id: uid(), parentId: null, doc, ...kind, title, createdAt: t, updatedAt: t };

@@ -8,6 +8,7 @@ import { buildIndex, pathFrom, shorten } from '../tree';
 import type { TreeNode } from '../types';
 import { MAX_PINNED, WorkspaceCtx, freshNotes, choosePath, resolveView, type View, type Workspace } from '../workspace';
 import { Columns } from './Columns';
+import { OpenCode } from './OpenCode';
 import { OpenPdf } from './OpenPdf';
 import { Handle } from './Handle';
 import { IconButton } from './Icon';
@@ -82,6 +83,7 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   // Open while choosing a PDF for a new session; holds the project it will be filed under.
   const [openingPdf, setOpeningPdf] = useState<{ projectId?: string } | null>(null);
+  const [openingCode, setOpeningCode] = useState<{ projectId?: string } | null>(null);
   const [pinned, setPinned] = useState(() => loadJson(PIN_KEY, true));
   const [peek, setPeek] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => loadJson(SIDEBAR_KEY, 264));
@@ -426,6 +428,7 @@ export function App() {
             onOpenPdf={(projectId) => setOpeningPdf({ projectId })}
             onBrowser={folder ? (projectId) => void createSession(projectId, undefined, { title: 'Browser', web: { url: '' } }).then((s) => workspace.openSession(s.id)) : undefined}
             onVsCode={folder ? (projectId) => void openInVsCode((projects ?? []).find((p) => p.id === projectId && !p.deleted)?.name ?? 'Inbox').catch((e) => setFolderStatus(String(e instanceof Error ? e.message : e))) : undefined}
+            onCode={folder ? (projectId) => setOpeningCode({ projectId }) : undefined}
             onTerminal={folder ? (projectId) => void createSession(projectId, undefined, { title: 'Terminal', terminal: '' }).then((s) => workspace.openSession(s.id)) : undefined}
             onNewProject={(name) => {
               const t = Date.now();
@@ -489,6 +492,16 @@ export function App() {
           <Columns />
         </main>
         <SelectionPopover />
+        {openingCode && (
+          <OpenCode
+            projectId={openingCode.projectId}
+            onClose={() => setOpeningCode(null)}
+            onOpen={(id) => {
+              setOpeningCode(null);
+              workspace.openSession(id);
+            }}
+          />
+        )}
         {openingPdf && (
           <OpenPdf
             folder={folder ? (projects ?? []).find((p) => p.id === openingPdf.projectId && !p.deleted)?.name ?? 'Inbox' : undefined}
