@@ -464,9 +464,11 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
 
         {!node.doc && !isNote && !mini && messages.length === 0 && (
           <p className="hint">
-            {node.parentId
-              ? 'Ask about the selected passage.'
-              : 'Ask a question to start. Then select any text in a reply to open a branch on it.'}
+            {node.terminal !== undefined
+              ? 'Type a command to run it in the project folder on this computer. Select any output to ask about it in a branch.'
+              : node.parentId
+                ? 'Ask about the selected passage.'
+                : 'Ask a question to start. Then select any text in a reply to open a branch on it.'}
           </p>
         )}
 

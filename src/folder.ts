@@ -180,22 +180,42 @@ export async function readWorkspaceFile(path: string): Promise<ArrayBuffer> {
 }
 
 /** Runs a shell command in a project's folder on the local server, passing on its output as it comes. */
-export async function runCommand(folder: string, command: string, signal: AbortSignal, onOutput: (text: string) => void): Promise<void> {
+export async function runCommand(
+  folder: string,
+  command: string,
+  signal: AbortSignal,
+  onOutput: (text: string) => void,
+  cwd?: string,
+): Promise<{ cwd?: string; home?: string }> {
   const s = getSettings();
   const key = s.keys.custom;
   const res = await fetch(`${cleanUrl(s.custom?.url ?? '')}/research-tree/run`, {
     method: 'POST',
     signal,
     headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ folder, command }),
+    body: JSON.stringify({ folder, command, cwd: cwd || undefined }),
   });
   if (!res.ok || !res.body) throw new Error((await res.json().catch(() => null))?.error ?? `${res.status} from the local server`);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
+  // After the output comes a zero byte and a note of the folder the command ended in.
+  let note: string | null = null;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    onOutput(decoder.decode(value, { stream: true }));
+    const text = decoder.decode(value, { stream: true });
+    if (note !== null) {
+      note += text;
+      continue;
+    }
+    const cut = text.indexOf('\0');
+    onOutput(cut < 0 ? text : text.slice(0, cut));
+    if (cut >= 0) note = text.slice(cut + 1);
+  }
+  try {
+    return note ? JSON.parse(note) : {};
+  } catch {
+    return {};
   }
 }
 

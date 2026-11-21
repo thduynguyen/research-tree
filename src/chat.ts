@@ -66,7 +66,8 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
   const hadMessages = (await db.messages.where('nodeId').equals(nodeId).count()) > 0;
   const userMsg: Message = { id: uid(), nodeId, role: 'user', content: text, createdAt: t, updatedAt: t };
   // A "!command" is answered by the shell, not by a model, and is labelled so.
-  const shell = text.startsWith('!') && hasFolder();
+  const terminal = node.terminal !== undefined;
+  const shell = terminal || (text.startsWith('!') && hasFolder());
   const reply: Message = { id: uid(), nodeId, role: 'assistant', content: '', model: shell ? SHELL : model, createdAt: t + 1, updatedAt: t };
   await putMessage(userMsg);
   await putMessage(reply);
@@ -76,7 +77,7 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
   }
 
   // A root takes its name from the first question asked in it.
-  if (!hadMessages && !node.parentId) {
+  if (!hadMessages && !node.parentId && !terminal) {
     const title = shorten(text);
     await putNode({ ...node, model, title });
     const sessions = await db.sessions.filter((s) => s.rootNodeId === nodeId).toArray();
@@ -103,7 +104,7 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
     const turns = buildContext(index, nodeId, (print) => texts.get(print), node.scope ?? 'paper');
     const provider = providers[model.provider];
     const key = getSettings().keys[model.provider] ?? '';
-    if (!isReady(getSettings(), model.provider)) throw new Error(`${provider.label} is not set up. Add it in Settings.`);
+    if (!shell && !isReady(getSettings(), model.provider)) throw new Error(`${provider.label} is not set up. Add it in Settings.`);
     // The project's folder on the local server, for the levels that work in one and for shell commands.
     const folderOf = async () => {
       let root = node;
@@ -114,12 +115,19 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
     };
     // "!command" runs the command itself in the project's folder, with no model involved.
     if (shell) {
+      if (!hasFolder()) throw new Error('A terminal needs the local helper. Start it, then connect it in Settings.');
       entry.text = '```\n';
-      await runCommand(await folderOf(), text.slice(1).trim(), controller.signal, (out) => {
+      const ended = await runCommand(await folderOf(), terminal ? text : text.slice(1).trim(), controller.signal, (out) => {
         entry.text += out;
         notify();
-      });
-      entry.text = `${entry.text.replace(/\n?$/, '\n')}\`\`\``;
+      }, node.terminal);
+      // A command that printed nothing says so, in place of an empty box.
+      entry.text = entry.text.trim() === '```' ? '*(no output)*' : `${entry.text.replace(/\n?$/, '\n')}\`\`\``;
+      // A terminal's next command starts where this one ended.
+      if (terminal && ended.cwd) {
+        const now = await db.nodes.get(nodeId);
+        if (now && now.terminal !== ended.cwd) await putNode({ ...now, terminal: ended.cwd });
+      }
       return;
     }
     // A local server that can work in a folder is told how far it may go, and in which project's folder.

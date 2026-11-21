@@ -91,6 +91,8 @@ interface Props {
   onPeek: (peek: boolean) => void;
   onNew: (projectId?: string) => void;
   onOpenPdf: (projectId?: string) => void;
+  /** Opens a terminal in the project's folder; absent when no local server offers one. */
+  onTerminal?: (projectId?: string) => void;
   /** Creates the project and returns its id. */
   onNewProject: (name: string) => string;
   onMoveSession: (sessionId: string, projectId?: string) => void;
@@ -361,6 +363,12 @@ export function Sidebar(p: Props) {
               <span className="twisty-gap" aria-hidden="true">+</span>
               <span className="tree-label">Open a PDF</span>
             </button>
+            {p.onTerminal && (
+              <button className="tree-row new-session" onClick={() => p.onTerminal!(project?.id)}>
+                <span className="twisty-gap" aria-hidden="true">+</span>
+                <span className="tree-label">Terminal</span>
+              </button>
+            )}
           </nav>
 
           <div className="sidebar-foot">

@@ -92,6 +92,12 @@ export interface TreeNode {
    */
   access?: string;
   /**
+   * Present when the node is a terminal: every message is a shell command run
+   * on the user's computer, and the reply is its output. Holds the folder the
+   * last command ended in ('' before the first), where the next one starts.
+   */
+  terminal?: string;
+  /**
    * Present (possibly empty) when the node is a written annotation rather than
    * a chat thread: Markdown with LaTeX math, and no model involved.
    */

@@ -28,7 +28,86 @@ const ACCESS: Record<string, string> = {
   auto: 'may change files and run commands, without asking',
 };
 
-export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean }) {
+export function Composer(props: { node: TreeNode; autoFocus: boolean }) {
+  return props.node.terminal !== undefined ? <TerminalInput {...props} /> : <ChatComposer {...props} />;
+}
+
+/** The command line of a terminal panel: Enter runs, the arrow keys recall earlier commands. */
+function TerminalInput({ node, autoFocus }: { node: TreeNode; autoFocus: boolean }) {
+  const ws = useWorkspace();
+  useLive();
+  const busy = isBusy(node.id);
+  const [text, setText] = useState('');
+  // How far back in the earlier commands the arrow keys have gone; 0 is the line being typed.
+  const [back, setBack] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+  const history = (ws.idx.messagesOf.get(node.id) ?? []).filter((m) => m.role === 'user').map((m) => m.content);
+
+  useEffect(() => {
+    if (autoFocus) input.current?.focus();
+  }, [autoFocus]);
+  // Ready for the next command as soon as one finishes.
+  useEffect(() => {
+    if (!busy && document.activeElement === document.body) input.current?.focus();
+  }, [busy]);
+
+  const run = () => {
+    const value = text.trim();
+    if (!value || busy) return;
+    setText('');
+    setBack(0);
+    void sendMessage(node.id, value, DEMO_MODEL);
+  };
+  const recall = (step: number) => {
+    const next = Math.max(0, Math.min(history.length, back + step));
+    setBack(next);
+    setText(next ? history[history.length - next] : '');
+  };
+  // The folder the next command starts in: its last two parts are enough to know where one is.
+  const where = node.terminal ? node.terminal.split('/').filter(Boolean).slice(-2).join('/') : 'project folder';
+
+  return (
+    <form
+      className="composer terminal"
+      onSubmit={(e) => {
+        e.preventDefault();
+        run();
+      }}
+    >
+      <label className="prompt">
+        <span title={node.terminal || undefined}>{where} $</span>
+        <input
+          ref={input}
+          aria-label="Command"
+          value={text}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoComplete="off"
+          onChange={(e) => {
+            setText(e.target.value);
+            setBack(0);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              recall(e.key === 'ArrowUp' ? 1 : -1);
+            }
+          }}
+        />
+      </label>
+      <div className="composer-row">
+        <span className="hint">One command at a time; programs that take over the screen (editors, pagers) do not work here.</span>
+        {busy ? (
+          <button type="button" className="btn" onClick={() => stop(node.id)}>Stop</button>
+        ) : (
+          <button type="submit" className="btn primary" disabled={!text.trim()}>Run</button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+function ChatComposer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean }) {
   const settings = useSettings();
   const ws = useWorkspace();
   // The paper this conversation is about, if any: the nearest PDF above it in the tree.

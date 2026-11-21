@@ -423,6 +423,7 @@ export function App() {
             projects={(projects ?? []).filter((p) => !p.deleted)}
             onNew={(projectId) => void createSession(projectId).then((s) => workspace.openSession(s.id))}
             onOpenPdf={(projectId) => setOpeningPdf({ projectId })}
+            onTerminal={folder ? (projectId) => void createSession(projectId, undefined, true).then((s) => workspace.openSession(s.id)) : undefined}
             onNewProject={(name) => {
               const t = Date.now();
               const id = uid();
