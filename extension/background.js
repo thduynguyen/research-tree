@@ -10,7 +10,23 @@ async function appAddress() {
 
 async function read(address, next) {
   if (!/^https?:\/\//i.test(address || '')) return;
-  await chrome.tabs.create({ url: `${await appAddress()}?open=${encodeURIComponent(address)}`, index: next });
+  const app = await appAddress();
+  const sent = `open=${encodeURIComponent(address)}`;
+  // A tab already showing the app is handed the page and brought forward. Only the part of its
+  // address after "#" changes, so the app does not reload. The time makes each hand-over distinct.
+  let open = [];
+  try {
+    open = await chrome.tabs.query({ url: `${app}*` });
+  } catch {
+    // The app is at an address this extension may not look for among tabs: a new tab it is.
+  }
+  const tab = open.find((t) => t.url && t.url.split(/[?#]/)[0] === app);
+  if (tab) {
+    await chrome.tabs.update(tab.id, { url: `${app}#${sent}&at=${Date.now()}`, active: true });
+    await chrome.windows.update(tab.windowId, { focused: true });
+    return;
+  }
+  await chrome.tabs.create({ url: `${app}?${sent}`, index: next });
 }
 
 // The toolbar icon: the page in this tab.

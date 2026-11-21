@@ -389,23 +389,29 @@ export function App() {
     };
   }, [session, sessions, nodes, visible, highlights, idx, views, focus, picked]);
 
-  // A page sent from the reader's browser ("?open=<address>") opens as a session: a PDF in the PDF
-  // reader, anything else as a web page to read.
-  const sent = useRef(false);
+  // A page sent from the reader's browser opens as a session: a PDF in the PDF reader, anything
+  // else as a web page to read. It arrives in the address, as "?open=<address>" when the app is
+  // opened for it, or as "#open=<address>" when it is handed to a tab already showing the app.
+  const receiver = useRef({ workspace, projectId: session?.projectId });
+  receiver.current = { workspace, projectId: session?.projectId };
+  const ready = !!workspace;
   useEffect(() => {
-    if (!workspace || sent.current) return;
-    const address = new URLSearchParams(location.search).get('open');
-    if (!address) return;
-    sent.current = true;
-    window.history.replaceState(null, '', location.pathname);
-    if (!/^https?:\/\//i.test(address)) return;
-    const pdf = pdfUrlOf(address) ?? (/\.pdf($|[?#])/i.test(address) ? address : null);
-    void createSession(session?.projectId, pdf ? { fingerprint: '', title: pdf, url: pdf, pages: 0 } : undefined, pdf ? undefined : { title: 'Web page', web: { url: address } }).then((s) =>
-      workspace.openSession(s.id),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace]);
-
+    if (!ready) return;
+    const receive = () => {
+      const address = new URLSearchParams(location.search).get('open') ?? new URLSearchParams(location.hash.slice(1)).get('open');
+      if (!address) return;
+      window.history.replaceState(null, '', location.pathname);
+      const { workspace: ws, projectId } = receiver.current;
+      if (!ws || !/^https?:\/\//i.test(address)) return;
+      const pdf = pdfUrlOf(address) ?? (/\.pdf($|[?#])/i.test(address) ? address : null);
+      void createSession(projectId, pdf ? { fingerprint: '', title: pdf, url: pdf, pages: 0 } : undefined, pdf ? undefined : { title: 'Web page', web: { url: address } }).then((made) =>
+        receiver.current.workspace?.openSession(made.id),
+      );
+    };
+    receive();
+    window.addEventListener('hashchange', receive);
+    return () => window.removeEventListener('hashchange', receive);
+  }, [ready]);
 
   if (!workspace) return <div className="loading">Loading…</div>;
 

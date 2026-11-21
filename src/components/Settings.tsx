@@ -177,6 +177,7 @@ export function Settings({ onClose, onPull, onPush, syncStatus }: Props) {
             <li>Open <code>chrome://extensions</code> in a new tab and turn on <strong>Developer mode</strong>, at the top right.</li>
             <li>Choose <strong>Load unpacked</strong> and pick the <code>extension</code> folder inside the source.</li>
             <li>Click the puzzle-piece button in the toolbar and pin <strong>Read in Research Tree</strong>.</li>
+            <li>After the extension's files are updated, press the reload arrow on its card in <code>chrome://extensions</code>.</li>
             <li>
               It sends pages to <code>http://127.0.0.1:8765/</code>. If you use the app at another address
               {location.origin.startsWith('http://127.0.0.1:8765') ? '' : <> (this one is <code>{location.origin}/</code>)</>}, right-click the icon,

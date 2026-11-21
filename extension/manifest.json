@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Read in Research Tree",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Opens the page or PDF you are on in Research Tree, to read, highlight and discuss.",
   "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
   "action": { "default_title": "Read this page in Research Tree", "default_icon": { "16": "icon16.png", "48": "icon48.png" } },
   "background": { "service_worker": "background.js" },
   "options_page": "options.html",
-  "permissions": ["activeTab", "contextMenus", "storage"]
+  "permissions": ["activeTab", "contextMenus", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"]
 }
