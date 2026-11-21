@@ -142,5 +142,19 @@ export function syncFolder(): Promise<void> {
   return running;
 }
 
+let commandList: Promise<string[]> | null = null;
+
+/** The slash commands the local server's tool accepts. Asked for once; an empty list when it cannot say. */
+export function slashCommands(): Promise<string[]> {
+  commandList ??= call<{ commands?: string[] }>('commands').then(
+    (body) => (Array.isArray(body.commands) ? body.commands : []),
+    () => {
+      commandList = null;
+      return [];
+    },
+  );
+  return commandList;
+}
+
 export const gitState = () => call<GitState>('git');
 export const gitSave = (message?: string) => call<GitState>('git', { message });

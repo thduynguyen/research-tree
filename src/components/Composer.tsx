@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { isBusy, sendMessage, stop, useLive } from '../chat';
+import { slashCommands } from '../folder';
 import { realProviders } from '../providers';
 import { DEMO_MODEL, defaultModel, isReady, useSettings } from '../settings';
 import type { DocScope, ModelRef, ProviderId, TreeNode } from '../types';
@@ -42,6 +43,21 @@ export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boole
   const levels = model.provider === 'custom' ? settings.custom?.levels ?? [] : [];
   const access = node.access && levels.includes(node.access) ? node.access : 'ask';
 
+  // At the full level the server's tool takes slash commands; typing "/" lists them.
+  const [commands, setCommands] = useState<string[]>([]);
+  const [choice, setChoice] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => {
+    if (access === 'auto') void slashCommands().then(setCommands);
+  }, [access]);
+  const typed = access === 'auto' && !dismissed && /^\/[^\s]*$/.test(text) ? text.slice(1).toLowerCase() : null;
+  const matches = typed === null ? [] : commands.filter((c) => c.toLowerCase().includes(typed)).sort((a, b) => Number(b.toLowerCase().startsWith(typed)) - Number(a.toLowerCase().startsWith(typed))).slice(0, 8);
+  const pick = Math.min(choice, matches.length - 1);
+  const complete = (name: string) => {
+    setText(`/${name} `);
+    input.current?.focus();
+  };
+
   const send = () => {
     const value = text.trim();
     if (!value || busy) return;
@@ -57,14 +73,48 @@ export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boole
         send();
       }}
     >
+      {matches.length > 0 && (
+        <ul className="commands" role="listbox" aria-label="Commands">
+          {matches.map((name, i) => (
+            <li key={name} role="option" aria-selected={i === pick}>
+              <button type="button" tabIndex={-1} className={i === pick ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => complete(name)}>
+                /{name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <textarea
         ref={input}
         aria-label="Message"
         rows={2}
         value={text}
         placeholder={node.parentId ? 'Ask in this branch' : 'Ask anything'}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          setChoice(0);
+          setDismissed(false);
+        }}
         onKeyDown={(e) => {
+          if (matches.length && !e.nativeEvent.isComposing) {
+            const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+            if (step) {
+              e.preventDefault();
+              setChoice((pick + step + matches.length) % matches.length);
+              return;
+            }
+            // Enter sends a command typed in full; otherwise it, like Tab, fills in the chosen one.
+            if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && matches[pick] !== text.slice(1))) {
+              e.preventDefault();
+              complete(matches[pick]);
+              return;
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              setDismissed(true);
+              return;
+            }
+          }
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             send();
