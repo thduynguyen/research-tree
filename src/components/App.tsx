@@ -4,6 +4,7 @@ import { createSession, db, putHighlight, putNode, putProject, putSession, remov
 import { getSettings, useSettings } from '../settings';
 import { connectToHost, openInVsCode, gitSave, gitState, hasFolder, syncFolder, type GitState } from '../folder';
 import { pull, push } from '../sync';
+import { pdfUrlOf } from '../text';
 import { buildIndex, pathFrom, shorten } from '../tree';
 import type { TreeNode } from '../types';
 import { MAX_PINNED, WorkspaceCtx, freshNotes, choosePath, resolveView, type View, type Workspace } from '../workspace';
@@ -388,6 +389,24 @@ export function App() {
     };
   }, [session, sessions, nodes, visible, highlights, idx, views, focus, picked]);
 
+  // A page sent from the reader's browser ("?open=<address>") opens as a session: a PDF in the PDF
+  // reader, anything else as a web page to read.
+  const sent = useRef(false);
+  useEffect(() => {
+    if (!workspace || sent.current) return;
+    const address = new URLSearchParams(location.search).get('open');
+    if (!address) return;
+    sent.current = true;
+    window.history.replaceState(null, '', location.pathname);
+    if (!/^https?:\/\//i.test(address)) return;
+    const pdf = pdfUrlOf(address) ?? (/\.pdf($|[?#])/i.test(address) ? address : null);
+    void createSession(session?.projectId, pdf ? { fingerprint: '', title: pdf, url: pdf, pages: 0 } : undefined, pdf ? undefined : { title: 'Web page', web: { url: address } }).then((s) =>
+      workspace.openSession(s.id),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace]);
+
+
   if (!workspace) return <div className="loading">Loading…</div>;
 
   const previous = [...history].reverse().find((id) => id !== workspace.session.id && visible.some((s) => s.id === id));
@@ -426,7 +445,7 @@ export function App() {
             projects={(projects ?? []).filter((p) => !p.deleted)}
             onNew={(projectId) => void createSession(projectId).then((s) => workspace.openSession(s.id))}
             onOpenPdf={(projectId) => setOpeningPdf({ projectId })}
-            onBrowser={folder ? (projectId) => void createSession(projectId, undefined, { title: 'Browser', web: { url: '' } }).then((s) => workspace.openSession(s.id)) : undefined}
+            onBrowser={folder ? (projectId) => void createSession(projectId, undefined, { title: 'Web page', web: { url: '' } }).then((s) => workspace.openSession(s.id)) : undefined}
             onVsCode={folder ? (projectId) => void openInVsCode((projects ?? []).find((p) => p.id === projectId && !p.deleted)?.name ?? 'Inbox').catch((e) => setFolderStatus(String(e instanceof Error ? e.message : e))) : undefined}
             onCode={folder ? (projectId) => setOpeningCode({ projectId }) : undefined}
             onTerminal={folder ? (projectId) => void createSession(projectId, undefined, { title: 'Terminal', terminal: '' }).then((s) => workspace.openSession(s.id)) : undefined}

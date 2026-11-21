@@ -378,7 +378,7 @@ export function Sidebar(p: Props) {
             {p.onBrowser && (
               <button className="tree-row new-session" onClick={() => p.onBrowser!(project?.id)}>
                 <span className="twisty-gap" aria-hidden="true">+</span>
-                <span className="tree-label">Browser</span>
+                <span className="tree-label">Web page</span>
               </button>
             )}
             {p.onTerminal && (

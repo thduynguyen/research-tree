@@ -1,81 +1,59 @@
-import DOMPurify from 'dompurify';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createSession, db, putNode, putSession } from '../db';
-import { fetchPage, projectIdOf, type FetchedPage } from '../folder';
-import { pdfUrlOf } from '../text';
+import { useEffect, useRef, useState } from 'react';
+import { db, putNode, putSession } from '../db';
+import { fetchPage } from '../folder';
+import { locate, pdfUrlOf } from '../text';
 import { WEB_KEY, type TreeNode } from '../types';
 import { useWorkspace } from '../workspace';
-import { MessageBody, type Mark } from './MessageBody';
+import { wrapRange, type Mark } from './MessageBody';
+import { FRAME_SELECTION, readSelection } from './SelectionPopover';
 
-/** Where a search typed into the address bar goes: an engine whose results can be read without running its scripts. */
-const SEARCH = 'https://search.brave.com/search?q=';
-
-/** An address as typed: a full one, a bare site name, or words to search for. */
+/** An address as typed: a full one, or a bare site name. */
 export function addressOf(typed: string): string {
   const text = typed.trim();
-  if (/^https?:\/\//i.test(text)) return text;
-  if (/^[^\s/]+\.[a-z]{2,}(\/\S*)?$/i.test(text) || /^localhost(:\d+)?(\/\S*)?$/i.test(text)) return `${text.startsWith('localhost') ? 'http' : 'https'}://${text}`;
-  return SEARCH + encodeURIComponent(text);
+  if (!text || /^https?:\/\//i.test(text)) return text;
+  return `${/^localhost(:\d+)?(\/|$)/i.test(text) ? 'http' : 'https'}://${text}`;
 }
 
-interface Cleaned {
-  url: string;
-  title: string;
-  html: string;
-  text: string;
-}
+/** How marks look inside a page, whose own styles know nothing of them. */
+const MARK_STYLE = `
+mark[data-hl], mark[data-child] { background: #ffe58a; color: inherit; border-radius: 2px; cursor: pointer; }
+mark[data-child].detached { background: none; border-bottom: 2px dashed #2f4ac6; border-radius: 0; }
+mark[data-child].active { box-shadow: 0 0 0 2px #2f4ac6; }
+mark[data-kind] { border-bottom: 2px solid rgba(22, 24, 29, 0.55); }
+mark[data-kind='ask'] { border-bottom-color: #2f4ac6; }
+html, body { height: auto !important; min-height: 0 !important; overflow: visible !important; }
+`;
 
 /**
- * Reduces a fetched page to what is read: its main content, with links and
- * images pointing at the real site, and nothing that runs or styles.
+ * A fetched page made ready to show as it looks on its site, but inert: its
+ * own styles and pictures load from the site, nothing of it runs, and its
+ * links open in the reader's real browser.
  */
-export function cleanPage(page: FetchedPage): Cleaned {
-  const base = page.url;
-  if (page.kind === 'text') {
-    const text = page.html ?? '';
-    return { url: base, title: base, text, html: `<pre>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>` };
+export function framedPage(html: string, url: string): { doc: string; title: string } {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const title = doc.querySelector('title')?.textContent?.trim() || url;
+  doc.querySelectorAll('script, iframe, frame, object, embed, base, meta[http-equiv], link[rel~="preload"], link[rel~="modulepreload"], link[rel~="prefetch"]').forEach((el) => el.remove());
+  for (const el of doc.querySelectorAll('*')) {
+    for (const attr of [...el.attributes]) if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
   }
-  const doc = new DOMParser().parseFromString(page.html ?? '', 'text/html');
-  const title = doc.querySelector('title')?.textContent?.trim() || base;
-  doc.querySelectorAll('script, style, noscript, iframe, template, link, meta, svg, canvas, form, input, button, select, textarea, dialog').forEach((el) => el.remove());
-  // The article itself, when the page marks one that holds most of its text; otherwise everything.
-  const all = doc.body?.textContent?.length ?? 0;
-  const main = [...doc.querySelectorAll<HTMLElement>('main, article, [role="main"]')].sort((a, b) => (b.textContent?.length ?? 0) - (a.textContent?.length ?? 0))[0];
-  const root = main && (main.textContent?.length ?? 0) > Math.max(400, all * 0.4) ? main : doc.body;
-  if (!root) return { url: base, title, html: '', text: '' };
-  root.querySelectorAll('nav, [aria-hidden="true"], [hidden]').forEach((el) => el.remove());
-
-  const absolute = (value: string | null) => {
-    try {
-      return value ? new URL(value, base).href : null;
-    } catch {
-      return null;
-    }
-  };
-  root.querySelectorAll('a[href]').forEach((a) => {
-    const href = absolute(a.getAttribute('href'));
-    if (href && /^https?:/.test(href)) a.setAttribute('href', href);
-    else a.removeAttribute('href');
-  });
-  root.querySelectorAll('img').forEach((img) => {
-    // Pages that load pictures late keep the real address in another attribute.
-    const src = absolute(img.getAttribute('src')) ?? absolute(img.getAttribute('data-src')) ?? absolute(img.getAttribute('data-lazy-src'));
-    if (src && /^https?:/.test(src) && !src.includes('data:image/gif')) img.setAttribute('src', src);
-    else img.remove();
-    img.setAttribute('loading', 'lazy');
+  // Pictures that a script would have filled in later keep their address in another attribute.
+  doc.querySelectorAll('img').forEach((img) => {
+    const late = img.getAttribute('data-src') ?? img.getAttribute('data-lazy-src');
+    if (late && (!img.getAttribute('src') || img.getAttribute('src')!.startsWith('data:'))) img.setAttribute('src', late);
     img.setAttribute('referrerpolicy', 'no-referrer');
   });
-  const html = DOMPurify.sanitize(root.innerHTML, {
-    FORBID_TAGS: ['style', 'form', 'input', 'button', 'iframe', 'object', 'embed', 'video', 'audio', 'source', 'picture'],
-    FORBID_ATTR: ['style', 'class', 'id', 'srcset', 'sizes', 'width', 'height', 'onclick'],
-  });
-  const holder = document.createElement('div');
-  holder.innerHTML = html;
-  return { url: base, title, html, text: (holder.textContent ?? '').replace(/\n\s*\n\s*/g, '\n\n').trim() };
+  const base = doc.createElement('base');
+  base.href = url;
+  base.target = '_blank';
+  doc.head.prepend(base);
+  const style = doc.createElement('style');
+  style.textContent = MARK_STYLE;
+  doc.head.append(style);
+  return { doc: `<!doctype html>${doc.documentElement.outerHTML}`, title };
 }
 
-// Pages already read in this tab, so that coming back to one is instant and keeps its text in place.
-const seen = new Map<string, Cleaned>();
+// Pages already fetched in this tab, so that coming back to one is instant.
+const seen = new Map<string, { doc: string; title: string; url: string }>();
 
 interface Props {
   node: TreeNode;
@@ -86,27 +64,27 @@ interface Props {
 }
 
 /**
- * A web page read inside a panel. Following a link changes the page in place
- * while nothing on it is marked. Once it has highlights, notes or
- * conversations it stays, and a link opens the next page as a branch from it.
+ * A web page to read, shown as it looks on its site. It can be highlighted,
+ * annotated and asked about like a PDF. It is not a browser: its links open in
+ * the reader's own browser, except a link to a PDF, which opens here as a branch.
  */
 export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
   const ws = useWorkspace();
   const url = node.web?.url ?? '';
-  const [typed, setTyped] = useState(url);
-  const [page, setPage] = useState<Cleaned | null>(url ? seen.get(url) ?? null : null);
+  const [typed, setTyped] = useState('');
+  const [page, setPage] = useState(url ? seen.get(url) ?? null : null);
   const [status, setStatus] = useState('');
-  // The pages gone through in this panel while it held nothing marked, for its own back and forward.
-  const trail = useRef<{ list: string[]; at: number }>({ list: url ? [url] : [], at: 0 });
-  const kept = marks.length > 0;
-
-  useEffect(() => setTyped(url), [url]);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [ready, setReady] = useState(0);
+  // Read by the frame's listeners, which are set once per page.
+  const handlers = useRef({ onOpen, onHighlight, onHover, ws, node });
+  handlers.current = { onOpen, onHighlight, onHover, ws, node };
 
   useEffect(() => {
     if (!url) return;
-    const ready = seen.get(url);
-    if (ready) {
-      setPage(ready);
+    const known = seen.get(url);
+    if (known) {
+      setPage(known);
       setStatus('');
       return;
     }
@@ -123,25 +101,24 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
           if (now) await putNode({ ...now, web: undefined, title: got.url, doc: { fingerprint: '', title: got.url, url: got.url, pages: 0 } });
           return;
         }
-        if (got.kind === 'error' || got.kind === 'other') {
+        if (got.kind !== 'html' && got.kind !== 'text') {
           setStatus(got.kind === 'error' ? `This page could not be opened: ${got.error}` : `This address holds ${got.type || 'a file'}, which cannot be shown here.`);
           return;
         }
-        const clean = cleanPage(got);
-        seen.set(url, clean);
-        seen.set(clean.url, clean);
-        // Kept for the model: a conversation about this page is given its text.
-        await db.files.put({ fingerprint: `web:${clean.url}`, data: new ArrayBuffer(0), text: [clean.text.slice(0, 400000)] });
-        setPage(clean);
-        setStatus(clean.text.length < 200 ? 'Little could be read from this page. It may need a sign-in, or build itself with scripts, which this reader does not run.' : '');
+        const source = got.kind === 'text' ? `<pre>${(got.html ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre>` : got.html ?? '';
+        const made = { ...framedPage(source, got.url), url: got.url };
+        seen.set(url, made);
+        seen.set(got.url, made);
+        setPage(made);
+        setStatus('');
         // The node takes the page's real address (after any redirect) and its title.
         const now = await db.nodes.get(node.id);
-        if (now?.web && (now.web.url !== clean.url || now.web.title !== clean.title)) {
-          const named = !now.title || now.title === 'Browser' || now.title === now.web.title || now.title === now.web.url;
-          await putNode({ ...now, web: { url: clean.url, title: clean.title }, title: named ? clean.title : now.title });
+        if (now?.web && (now.web.url !== got.url || now.web.title !== made.title)) {
+          const named = !now.title || now.title === 'Web page' || now.title === 'Browser' || now.title === now.web.title || now.title === now.web.url;
+          await putNode({ ...now, web: { url: got.url, title: made.title }, title: named ? made.title : now.title });
           if (named && !now.parentId) {
             const session = await db.sessions.filter((s) => s.rootNodeId === now.id && !s.deleted).first();
-            if (session) await putSession({ ...session, title: clean.title });
+            if (session) await putSession({ ...session, title: made.title });
           }
         }
       } catch (e) {
@@ -153,112 +130,133 @@ export function WebView({ node, marks, onOpen, onHighlight, onHover }: Props) {
     };
   }, [url, node.id]);
 
-  /** Shows another page in this panel, which holds nothing marked. */
-  const show = async (next: string, record = true) => {
-    if (record) {
-      const t = trail.current;
-      t.list = [...t.list.slice(0, t.at + 1), next];
-      t.at = t.list.length - 1;
-    }
-    const now = await db.nodes.get(node.id);
-    if (!now) return;
-    // A panel named after its page is renamed with it; until the new page's title is known, by its address.
-    const named = !now.title || now.title === 'Browser' || now.title === now.web?.title || now.title === now.web?.url;
-    await putNode({ ...now, web: { url: next }, title: named ? next : now.title });
-    if (named && !now.parentId) {
-      const session = await db.sessions.filter((x) => x.rootNodeId === now.id && !x.deleted).first();
-      if (session) await putSession({ ...session, title: next });
-    }
-  };
-
-  /** Goes to an address: to its branch if this session already has one, else by the rule above. */
-  const go = async (next: string, link?: { start: number; end: number; quote: string }) => {
-    if (!next || next === url) return;
-    const rootOf = (n: TreeNode | undefined) => {
-      let cur = n;
-      while (cur?.parentId) cur = ws.idx.byId.get(cur.parentId);
-      return cur?.id;
+  // Once the page is in the frame: make its text markable, and listen to it.
+  const onLoad = () => {
+    const el = frame.current;
+    const doc = el?.contentDocument;
+    if (!el || !doc?.body) return;
+    const body = doc.body;
+    body.dataset.nodeId = node.id;
+    body.dataset.msgId = WEB_KEY;
+    // The frame is as tall as its page, so the panel scrolls it and nothing scrolls inside.
+    const fit = () => {
+      el.style.height = `${Math.max(doc.documentElement.scrollHeight, body.scrollHeight, 200)}px`;
     };
-    const mine = rootOf(node);
-    const pdf = pdfUrlOf(next) ?? (/\.pdf($|[?#])/i.test(next) ? next : null);
-    const there = [...ws.idx.byId.values()].find((n) => n.id !== node.id && rootOf(n) === mine && (n.web?.url === next || (pdf && n.doc?.url === pdf)));
-    if (there) return ws.select(there.id, { focus: true });
-    if (!kept) return show(next);
-    const extra = pdf ? { doc: { fingerprint: '', title: link?.quote || pdf, url: pdf, pages: 0 } } : { web: { url: next } };
-    if (link) return ws.branch(node.id, WEB_KEY, link.start, link.end, link.quote, extra);
-    // An address typed on a page that is being kept starts a browser of its own, beside this one.
-    const session = await createSession(await projectIdOf(node.id), pdf ? extra.doc : undefined, pdf ? undefined : { title: 'Browser', web: { url: next } });
-    ws.openSession(session.id);
+    fit();
+    new ResizeObserver(fit).observe(body);
+    const shifted = (rect: DOMRect) => {
+      const at = el.getBoundingClientRect();
+      return new DOMRect(rect.x + at.x, rect.y + at.y, rect.width, rect.height);
+    };
+    let timer = 0;
+    doc.addEventListener('selectionchange', () => {
+      clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const at = el.getBoundingClientRect();
+        window.dispatchEvent(new CustomEvent(FRAME_SELECTION, { detail: readSelection(doc, { x: at.x, y: at.y }) }));
+      }, 150);
+    });
+    const markOf = (t: EventTarget | null) => (t as Element | null)?.closest?.<HTMLElement>('mark[data-hl], mark[data-child]') ?? null;
+    doc.addEventListener('click', (e) => {
+      const h = handlers.current;
+      const mark = markOf(e.target);
+      if (mark) {
+        e.preventDefault();
+        if (mark.dataset.child) h.onOpen(mark.dataset.child, shifted(mark.getBoundingClientRect()));
+        else if (mark.dataset.hl) h.onHighlight(mark.dataset.hl, shifted(mark.getBoundingClientRect()));
+        return;
+      }
+      const link = (e.target as Element | null)?.closest?.<HTMLAnchorElement>('a[href]');
+      if (!link) return;
+      const here = (h.node.web?.url ?? '').split('#')[0];
+      // A link to another place on this page: moved to by hand, since the frame's address is not the page's.
+      if (link.href.split('#')[0] === here && link.hash) {
+        e.preventDefault();
+        const target = doc.getElementById(decodeURIComponent(link.hash.slice(1))) ?? doc.getElementsByName(link.hash.slice(1))[0];
+        target?.scrollIntoView({ block: 'start' });
+        return;
+      }
+      // A link to a PDF opens in the PDF reader, as a branch from the link.
+      const pdf = pdfUrlOf(link.href) ?? (/\.pdf($|[?#])/i.test(link.href) ? link.href : null);
+      const quote = link.textContent ?? '';
+      if (pdf && quote.trim()) {
+        e.preventDefault();
+        const there = [...h.ws.idx.byId.values()].find((n) => n.parentId === h.node.id && n.doc?.url === pdf);
+        if (there) return h.ws.select(there.id, { focus: true });
+        const before = doc.createRange();
+        before.selectNodeContents(body);
+        before.setEndBefore(link);
+        const start = before.toString().length;
+        void h.ws.branch(h.node.id, WEB_KEY, start, start + quote.length, quote, { doc: { fingerprint: '', title: quote.trim() || pdf, url: pdf, pages: 0 } });
+      }
+      // Any other link opens in the reader's own browser, as the page's base says.
+    });
+    doc.addEventListener('mouseover', (e) => {
+      const mark = markOf(e.target);
+      if (mark && !mark.classList.contains('detached')) handlers.current.onHover((mark.dataset.hl ?? mark.dataset.child)!, shifted(mark.getBoundingClientRect()));
+    });
+    doc.addEventListener('mouseout', (e) => {
+      if (markOf(e.target)) handlers.current.onHover(null);
+    });
+    // Kept for the model: a conversation about this page is given its text.
+    const text = (body.innerText || body.textContent || '').replace(/\n\s*\n\s*/g, '\n\n').trim();
+    if (url) void db.files.put({ fingerprint: `web:${url}`, data: new ArrayBuffer(0), text: [text.slice(0, 400000)] });
+    if (text.length < 200) setStatus('Little could be read from this page. It may need a sign-in, or build itself with scripts, which this reader does not run.');
+    setReady((n) => n + 1);
   };
 
-  const step = (by: number) => {
-    const t = trail.current;
-    const at = t.at + by;
-    if (at < 0 || at >= t.list.length) return;
-    t.at = at;
-    void show(t.list[at], false);
-  };
-  const t = trail.current;
-  const html = useMemo(() => page?.html ?? '', [page]);
+  // Marks are put into the page's text, and redone whenever they change.
+  const marksKey = marks.map((m) => `${m.id}:${m.start}:${m.end}:${m.active}:${!!m.hidden}:${m.color ?? ''}:${m.tint ?? ''}:${m.kind ?? ''}`).join('|');
+  useEffect(() => {
+    const body = frame.current?.contentDocument?.body;
+    if (!body || !ready) return;
+    for (const old of body.querySelectorAll('mark[data-hl], mark[data-child]')) {
+      old.querySelectorAll('i.badge').forEach((badge) => badge.remove());
+      old.replaceWith(...old.childNodes);
+    }
+    body.normalize();
+    const all = body.textContent ?? '';
+    for (const m of marks) {
+      // The page may have changed since it was marked: the passage is looked up again by its words.
+      const found = m.quote ? locate(all, m.start, m.end, m.quote) : ([m.start, m.end] as const);
+      if (found) wrapRange(body, { ...m, start: found[0], end: found[1] });
+    }
+    // The passage of the branch being looked at is brought into view.
+    const active = marks.find((m) => m.active && !m.color);
+    if (active && ws.picked?.id === active.id) body.querySelector(`mark[data-child="${active.id}"]`)?.scrollIntoView({ block: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marksKey, ready]);
 
   return (
     <div className="web">
-      <form
-        className="web-bar"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void go(addressOf(typed));
-        }}
-      >
-        {!kept && (
-          <>
-            <button type="button" className="btn" disabled={t.at <= 0} title="Back" aria-label="Back" onClick={() => step(-1)}>‹</button>
-            <button type="button" className="btn" disabled={t.at >= t.list.length - 1} title="Forward" aria-label="Forward" onClick={() => step(1)}>›</button>
-          </>
-        )}
-        <input
-          aria-label="Address or search"
-          value={typed}
-          placeholder="Search, or type an address"
-          spellCheck={false}
-          autoCapitalize="off"
-          autoFocus={!url}
-          onFocus={(e) => e.target.select()}
-          onChange={(e) => setTyped(e.target.value)}
-        />
-        {url && <a className="btn" href={url} target="_blank" rel="noopener noreferrer" title="Open this page in your browser">↗</a>}
-      </form>
-      {kept && <div className="hint">This page has marks, so it stays: a link opens as a branch from it.</div>}
-      {status && <div className="hint" role="status">{status}</div>}
-      {!url && <p className="hint">Type an address or a search. Highlight anything on a page to keep the page in the tree.</p>}
-      {page && (
-        <div className="msg assistant web-page">
-          <MessageBody
-            nodeId={node.id}
-            messageId={WEB_KEY}
-            role="assistant"
-            content=""
-            html={html}
-            streaming={false}
-            marks={marks}
-            onOpen={onOpen}
-            onHighlight={onHighlight}
-            onHover={onHover}
-            onLink={(href, link) => {
-              const body = link.closest('.body');
-              if (!body || !/^https?:/.test(href)) return false;
-              // A link to another place on the same page is left to the browser.
-              if (href.split('#')[0] === url.split('#')[0]) return true;
-              const before = document.createRange();
-              before.selectNodeContents(body);
-              before.setEndBefore(link);
-              const start = before.toString().length;
-              const quote = link.textContent ?? '';
-              void go(href, quote.trim() ? { start, end: start + quote.length, quote } : undefined);
-              return true;
-            }}
-          />
+      {url ? (
+        <div className="web-bar">
+          <a href={url} target="_blank" rel="noopener noreferrer" title="Open this page in your browser">{url}</a>
         </div>
+      ) : (
+        <form
+          className="web-bar"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const next = addressOf(typed);
+            if (next) void putNode({ ...node, web: { url: next } });
+          }}
+        >
+          <input aria-label="Address" value={typed} placeholder="Address of the page to read" spellCheck={false} autoCapitalize="off" autoFocus onChange={(e) => setTyped(e.target.value)} />
+          <button type="submit" className="btn primary">Open</button>
+        </form>
+      )}
+      {status && <div className="hint" role="status">{status}</div>}
+      {page && (
+        <iframe
+          ref={frame}
+          className="web-frame"
+          title={page.title}
+          // Nothing in the page may run. Its links may open new tabs, which behave as ordinary ones.
+          sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+          srcDoc={page.doc}
+          onLoad={onLoad}
+        />
       )}
     </div>
   );

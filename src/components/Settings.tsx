@@ -164,6 +164,22 @@ export function Settings({ onClose, onPull, onPush, syncStatus }: Props) {
         </p>
         <CustomCard />
 
+        <h3>Send pages from your browser</h3>
+        <p className="hint">
+          Drag this button to your browser's bookmarks bar. On any page or PDF, click it to open that page here to
+          read, highlight and discuss. Reading a web page needs the local helper; PDFs with a public link open without it.
+        </p>
+        <p>
+          <a
+            className="bookmarklet"
+            // React refuses to render a script address itself, so it is set on the element.
+            ref={(el) => el?.setAttribute('href', `javascript:void(open('${location.origin}${location.pathname}?open='+encodeURIComponent(location.href)))`)}
+            onClick={(e) => e.preventDefault()}
+          >
+            Read in Research Tree
+          </a>
+        </p>
+
         <h3>Git sync</h3>
         <p className="hint">
           Pushes all sessions to a private GitHub repository of yours as <code>research-tree/db.json</code> plus one

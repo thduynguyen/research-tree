@@ -11,12 +11,22 @@ interface Target {
   quote: string;
   x: number;
   y: number;
+  /** Drops the selection, when it is not in this document. */
+  clear?: () => void;
 }
 
-const bodyOf = (n: Node) => (n instanceof Element ? n : n.parentElement)?.closest<HTMLElement>('[data-msg-id]') ?? null;
+// Not `instanceof Element`: a node from a frame belongs to that frame's own Element.
+const bodyOf = (n: Node) => (n.nodeType === 1 ? (n as Element) : n.parentElement)?.closest<HTMLElement>('[data-msg-id]') ?? null;
 
-function readSelection(): Target | null {
-  const sel = document.getSelection();
+/** How text shown in a frame reports its selection (or null when it is dropped) to the popover. */
+export const FRAME_SELECTION = 'rt-frame-selection';
+
+/**
+ * The selected passage, as a place in one message's text. `doc` and `shift` are for text shown in a frame:
+ * its document, and where the frame sits in the window.
+ */
+export function readSelection(doc: Document = document, shift = { x: 0, y: 0 }): Target | null {
+  const sel = doc.getSelection();
   if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
   const range = sel.getRangeAt(0);
   const body = bodyOf(range.startContainer);
@@ -29,7 +39,7 @@ function readSelection(): Target | null {
   // taken as the reader sees it; the offsets still count the raw text.
   const quote = page ? sel.toString().replace(/\s+/g, ' ').trim() : raw.trim();
   if (!quote || !raw.trim()) return null;
-  const before = document.createRange();
+  const before = doc.createRange();
   before.selectNodeContents(body);
   before.setEnd(range.startContainer, range.startOffset);
   const start = before.toString().length + (raw.length - raw.trimStart().length);
@@ -41,8 +51,9 @@ function readSelection(): Target | null {
     start,
     end: start + raw.trim().length,
     quote,
-    x: Math.min(Math.max(rect.left + rect.width / 2, 200), window.innerWidth - 200),
-    y: Math.min(rect.bottom + 8, window.innerHeight - 60),
+    x: Math.min(Math.max(shift.x + rect.left + rect.width / 2, 200), window.innerWidth - 200),
+    y: Math.min(Math.max(shift.y + rect.bottom + 8, 60), window.innerHeight - 60),
+    clear: doc === document ? undefined : () => sel.removeAllRanges(),
   };
 }
 
@@ -65,16 +76,20 @@ export function SelectionPopover() {
       clearTimeout(timer);
       timer = window.setTimeout(() => setTarget(readSelection()), 150);
     };
+    const fromFrame = (e: Event) => setTarget((e as CustomEvent<Target | null>).detail);
     document.addEventListener('selectionchange', update);
+    window.addEventListener(FRAME_SELECTION, fromFrame);
     return () => {
       clearTimeout(timer);
       document.removeEventListener('selectionchange', update);
+      window.removeEventListener(FRAME_SELECTION, fromFrame);
     };
   }, []);
 
   if (!target) return null;
   const run = (action: () => Promise<void>) => {
     document.getSelection()?.removeAllRanges();
+    target.clear?.();
     setTarget(null);
     void action();
   };

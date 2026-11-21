@@ -56,9 +56,10 @@ Open **Settings** in the side panel.
   With such a server the side panel can also clone a git repository into a
   session's folder and show its code: an editor with syntax colours, a "go to
   file" box (Cmd+P or Ctrl+P), optional vim keys, and saving.
-  With such a server the side panel also offers a browser, which reads web
-  pages without running their scripts: a page you highlight stays in the tree,
-  and its links then open as branches. It also offers a terminal: a full one, or one
+  With such a server the app also reads web pages: a page is shown as it looks
+  on its site, with nothing of it run, and can be highlighted, annotated and
+  asked about. A bookmark button in Settings sends the page you are on in your
+  browser to the app. It also offers a terminal: a full one, or one
   where each line is a command and its output is kept, to highlight and ask about.
 - **Demo.** A built-in stand-in that needs no key, for trying the interface.
 

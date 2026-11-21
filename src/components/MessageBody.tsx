@@ -47,7 +47,9 @@ const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
  * they match what was recorded when the text was selected.
  */
 export function wrapRange(el: HTMLElement, mark: Mark) {
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  // The element may live in another document (a page shown in a frame), so its own document makes the nodes.
+  const doc = el.ownerDocument;
+  const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   const hits: { node: Text; from: number; to: number }[] = [];
   let pos = 0;
   for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
@@ -62,7 +64,7 @@ export function wrapRange(el: HTMLElement, mark: Mark) {
   for (const h of hits.reverse()) {
     const mid = h.from > 0 ? h.node.splitText(h.from) : h.node;
     if (h.to - h.from < mid.data.length) mid.splitText(h.to - h.from);
-    const span = document.createElement('mark');
+    const span = doc.createElement('mark');
     if (mark.found) {
       span.dataset.find = mark.found;
       mid.replaceWith(span);
@@ -87,7 +89,7 @@ export function wrapRange(el: HTMLElement, mark: Mark) {
     }
     // The badge sits at the end of the passage. It holds no text, so it does not shift any offsets.
     if (last && mark.kind && !mark.hidden) {
-      const badge = document.createElement('i');
+      const badge = doc.createElement('i');
       badge.className = `badge ${mark.kind}`;
       badge.setAttribute('aria-hidden', 'true');
       span.appendChild(badge);
@@ -120,8 +122,6 @@ interface Props {
   messageId: string;
   role: 'user' | 'assistant';
   content: string;
-  /** Ready, already cleaned HTML to show in place of `content`: a web page. */
-  html?: string;
   streaming: boolean;
   marks: Mark[];
   onOpen: (childId: string, at: DOMRect) => void;
@@ -133,11 +133,11 @@ interface Props {
   onLink?: (url: string, link: HTMLAnchorElement) => boolean;
 }
 
-export function MessageBody({ nodeId, messageId, role, content, html: given, streaming, marks, onOpen, onHighlight, onHover, onLink }: Props) {
+export function MessageBody({ nodeId, messageId, role, content, streaming, marks, onOpen, onHighlight, onHover, onLink }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(
-    () => given ?? (role === 'user' ? escapeHtml(content) : DOMPurify.sanitize(marked.parse(dollars(content), { async: false }) as string)),
-    [role, content, given],
+    () => (role === 'user' ? escapeHtml(content) : DOMPurify.sanitize(marked.parse(dollars(content), { async: false }) as string)),
+    [role, content],
   );
   const marksKey = marks.map((m) => `${m.id}:${m.start}:${m.end}:${m.active}:${!!m.hidden}:${m.color ?? ''}:${m.tint ?? ''}:${m.kind ?? ''}:${m.hint ?? ''}`).join('|');
 
