@@ -45,6 +45,10 @@ Open **Settings** in the side panel.
 
 - **API key.** Paste a key for Gemini, Claude or OpenAI. Keys are kept in the
   browser and sent only to that provider.
+- **Your own server.** Give the address of any server that speaks the OpenAI
+  chat format, such as a model running on your computer with Ollama, LM Studio
+  or llama.cpp. The address ends in `/v1`; a key is optional. The server has to
+  allow requests from the page's address (for Ollama, set `OLLAMA_ORIGINS`).
 - **Demo.** A built-in stand-in that needs no key, for trying the interface.
 
 A question about a paper sends the paper's text with it, placed first so that

@@ -1,41 +1,67 @@
-import { httpError, sseData, type Provider } from './types';
+import { getSettings } from '../settings';
+import { httpError, sseData, type ModelInfo, type Provider, type StreamRequest } from './types';
 
-const BASE = 'https://api.openai.com/v1';
 const NOT_CHAT = /embedding|audio|realtime|tts|transcribe|whisper|image|dall-e|moderation|search|instruct|codex|sora|computer-use/;
+
+const auth = (key: string): Record<string, string> => (key ? { Authorization: `Bearer ${key}` } : {});
+
+/** Lists models and streams a chat in the OpenAI format, which many other servers also speak. */
+function client(base: () => string, keep: (id: string) => boolean) {
+  return {
+    async listModels(key: string): Promise<ModelInfo[]> {
+      const res = await fetch(`${base()}/models`, { headers: auth(key) });
+      if (!res.ok) throw await httpError(res);
+      const body = (await res.json()) as { data?: { id: string; created?: number }[] };
+      if (!Array.isArray(body.data)) throw new Error('The server did not return a list of models.');
+      return body.data
+        .filter((m) => keep(m.id))
+        .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
+        .map((m) => ({ id: m.id }));
+    },
+
+    async stream({ key, model, system, turns, signal, onText }: StreamRequest): Promise<void> {
+      const res = await fetch(`${base()}/chat/completions`, {
+        method: 'POST',
+        signal,
+        headers: { ...auth(key), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: model.id,
+          stream: true,
+          // The paper comes first and unchanged in every conversation, which is what automatic prompt caching keys on.
+          messages: [{ role: 'system', content: system }, ...turns.map((t) => ({ role: t.role, content: t.doc ? `${t.doc}\n\n${t.content}` : t.content }))],
+        }),
+      });
+      if (!res.ok) throw await httpError(res);
+      for await (const data of sseData(res)) {
+        if (data === '[DONE]') break;
+        const event = JSON.parse(data);
+        if (event?.error) throw new Error(String(event.error.message ?? event.error));
+        const delta = event?.choices?.[0]?.delta?.content;
+        if (typeof delta === 'string' && delta) onText(delta);
+      }
+    },
+  };
+}
 
 export const openai: Provider = {
   id: 'openai',
   label: 'ChatGPT (OpenAI)',
   keyUrl: 'https://platform.openai.com/api-keys',
   keyHint: 'sk-…',
+  ...client(() => 'https://api.openai.com/v1', (id) => /^(gpt-|o\d|chatgpt-)/.test(id) && !NOT_CHAT.test(id)),
+};
 
-  async listModels(key) {
-    const res = await fetch(`${BASE}/models`, { headers: { Authorization: `Bearer ${key}` } });
-    if (!res.ok) throw await httpError(res);
-    const body = (await res.json()) as { data: { id: string; created?: number }[] };
-    return body.data
-      .filter((m) => /^(gpt-|o\d|chatgpt-)/.test(m.id) && !NOT_CHAT.test(m.id))
-      .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))
-      .map((m) => ({ id: m.id }));
-  },
+/** The address as typed, without a trailing slash. */
+export const cleanUrl = (url: string) => url.trim().replace(/\/+$/, '');
 
-  async stream({ key, model, system, turns, signal, onText }) {
-    const res = await fetch(`${BASE}/chat/completions`, {
-      method: 'POST',
-      signal,
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: model.id,
-        stream: true,
-        // The paper comes first and unchanged in every conversation, which is what OpenAI's automatic caching keys on.
-        messages: [{ role: 'system', content: system }, ...turns.map((t) => ({ role: t.role, content: t.doc ? `${t.doc}\n\n${t.content}` : t.content }))],
-      }),
-    });
-    if (!res.ok) throw await httpError(res);
-    for await (const data of sseData(res)) {
-      if (data === '[DONE]') break;
-      const delta = JSON.parse(data)?.choices?.[0]?.delta?.content;
-      if (typeof delta === 'string' && delta) onText(delta);
-    }
-  },
+/**
+ * A server the user points the app at: a model running on their own computer
+ * (Ollama, LM Studio, llama.cpp) or any other service with OpenAI-format endpoints.
+ */
+export const custom: Provider = {
+  id: 'custom',
+  label: 'Local or custom server',
+  keyUrl: '',
+  keyHint: 'only if the server asks for one',
+  ...client(() => cleanUrl(getSettings().custom?.url ?? ''), () => true),
 };

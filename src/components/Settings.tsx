@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { keyedProviders, type Provider } from '../providers';
+import { cleanUrl, keyedProviders, providers, type Provider } from '../providers';
 import { updateSettings, useSettings, type GithubConfig } from '../settings';
 
 function ProviderCard({ provider }: { provider: Provider }) {
@@ -57,6 +57,71 @@ function ProviderCard({ provider }: { provider: Provider }) {
   );
 }
 
+/** A server the user runs or chooses, addressed by its URL. The key is optional. */
+function CustomCard() {
+  const settings = useSettings();
+  const provider = providers.custom;
+  const [url, setUrl] = useState(settings.custom?.url ?? '');
+  const [key, setKey] = useState(settings.keys.custom ?? '');
+  const [status, setStatus] = useState(settings.custom?.url ? `Saved · ${settings.models.custom?.length ?? 0} models` : '');
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    const address = cleanUrl(url);
+    const keys = { ...settings.keys };
+    if (key.trim()) keys.custom = key.trim();
+    else delete keys.custom;
+    if (!address) {
+      delete keys.custom;
+      updateSettings({ keys, custom: undefined, models: { ...settings.models, custom: [] } });
+      setStatus('Removed');
+      return;
+    }
+    if (!/^https?:\/\//.test(address)) {
+      setStatus('The address should start with http:// or https://');
+      return;
+    }
+    setBusy(true);
+    setStatus('Checking…');
+    const before = { keys: settings.keys, custom: settings.custom };
+    // The provider reads the address from settings, so it is saved before the check and put back if the check fails.
+    updateSettings({ keys, custom: { url: address } });
+    try {
+      const models = await provider.listModels(key.trim());
+      updateSettings({ models: { ...settings.models, custom: models } });
+      setStatus(`Works · ${models.length} models`);
+    } catch (e) {
+      updateSettings(before);
+      const message = e instanceof Error ? e.message : String(e);
+      setStatus(
+        /failed to fetch|networkerror|load failed/i.test(message)
+          ? 'No answer. Check that the server is running, that the address is right, and that it allows requests from this page.'
+          : `Not accepted: ${message}`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card-static">
+      <div className="card-head">
+        <strong>{provider.label}</strong>
+      </div>
+      <div className="field-grid">
+        <label htmlFor="custom-url">Address</label>
+        <input id="custom-url" value={url} placeholder="http://127.0.0.1:11434/v1" autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} />
+        <label htmlFor="custom-key">Key</label>
+        <input id="custom-key" type="password" autoComplete="off" value={key} placeholder={provider.keyHint} onChange={(e) => setKey(e.target.value)} />
+      </div>
+      <div className="field-row">
+        <button className="btn primary" disabled={busy} onClick={() => void save()}>Check and save</button>
+      </div>
+      <div className="status" role="status">{status}</div>
+    </div>
+  );
+}
+
 interface Props {
   onClose: () => void;
   onPull: () => void;
@@ -89,6 +154,13 @@ export function Settings({ onClose, onPull, onPush, syncStatus }: Props) {
           Gemini has a free tier, so it is the quickest to start with.
         </p>
         {keyedProviders.map((p) => <ProviderCard key={p.id} provider={p} />)}
+
+        <h3>Your own server</h3>
+        <p className="hint">
+          For a model running on your own computer (Ollama, LM Studio, llama.cpp) or any other server that speaks the
+          OpenAI chat format. Give the address that ends in <code>/v1</code>. The server has to allow requests from this page.
+        </p>
+        <CustomCard />
 
         <h3>Git sync</h3>
         <p className="hint">

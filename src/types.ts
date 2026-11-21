@@ -1,4 +1,4 @@
-export type ProviderId = 'anthropic' | 'openai' | 'gemini' | 'demo';
+export type ProviderId = 'anthropic' | 'openai' | 'gemini' | 'custom' | 'demo';
 
 export interface ModelRef {
   provider: ProviderId;

@@ -12,6 +12,8 @@ export interface Settings {
   keys: Partial<Record<ProviderId, string>>;
   models: Partial<Record<ProviderId, ModelInfo[]>>;
   lastModel?: ModelRef;
+  /** A server with OpenAI-format endpoints, such as a model running on this computer. Its key is optional. */
+  custom?: { url: string };
   github?: GithubConfig;
 }
 
@@ -57,14 +59,24 @@ export function findModel(ref: ModelRef): ModelInfo {
   return current.models[ref.provider]?.find((m) => m.id === ref.model) ?? { id: ref.model };
 }
 
+const KNOWN: ProviderId[] = ['anthropic', 'openai', 'gemini', 'custom', 'demo'];
+
+/** Whether a provider is set up. A custom server needs an address; the others need a key. */
+export function isReady(s: Settings, p: ProviderId): boolean {
+  // Saved settings can name a provider this version does not have.
+  if (!KNOWN.includes(p)) return false;
+  if (p === 'demo') return true;
+  return p === 'custom' ? !!s.custom?.url : !!s.keys[p];
+}
+
 export const DEMO_MODEL: ModelRef = { provider: 'demo', model: 'demo' };
 
 /** The model a new message uses when the pane has no explicit choice. */
 export function defaultModel(): ModelRef {
   const s = current;
-  if (s.lastModel && (s.lastModel.provider === 'demo' || s.keys[s.lastModel.provider])) return s.lastModel;
-  for (const p of ['anthropic', 'gemini', 'openai'] as ProviderId[]) {
-    const first = s.keys[p] && s.models[p]?.[0];
+  if (s.lastModel && isReady(s, s.lastModel.provider)) return s.lastModel;
+  for (const p of ['anthropic', 'gemini', 'openai', 'custom'] as ProviderId[]) {
+    const first = isReady(s, p) && s.models[p]?.[0];
     if (first) return { provider: p, model: first.id };
   }
   return DEMO_MODEL;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isBusy, sendMessage, stop, useLive } from '../chat';
-import { keyedProviders } from '../providers';
-import { DEMO_MODEL, defaultModel, useSettings } from '../settings';
+import { realProviders } from '../providers';
+import { DEMO_MODEL, defaultModel, isReady, useSettings } from '../settings';
 import type { DocScope, ModelRef, ProviderId, TreeNode } from '../types';
 import { useWorkspace } from '../workspace';
 
@@ -29,7 +29,7 @@ export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boole
     if (autoFocus) input.current?.focus();
   }, [autoFocus]);
 
-  const usable = (m?: ModelRef | null) => !!m && (m.provider === 'demo' || !!settings.keys[m.provider]);
+  const usable = (m?: ModelRef | null) => !!m && isReady(settings, m.provider);
   const model = (usable(picked) ? picked : usable(node.model) ? node.model : defaultModel())!;
 
   const send = () => {
@@ -77,8 +77,8 @@ export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boole
       )}
       <div className="composer-row">
         <select aria-label="Model" value={encode(model)} onChange={(e) => setPicked(decode(e.target.value))}>
-          {keyedProviders.map((p) =>
-            settings.keys[p.id] ? (
+          {realProviders.map((p) =>
+            isReady(settings, p.id) ? (
               <optgroup key={p.id} label={p.label}>
                 {(settings.models[p.id] ?? []).map((m) => (
                   <option key={m.id} value={encode({ provider: p.id, model: m.id })}>
