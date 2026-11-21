@@ -237,6 +237,10 @@ export function App() {
         const node = idx.byId.get(nodeId);
         if (node && node.note !== text) await putNode({ ...node, note: text });
       },
+      async setScope(nodeId, scope) {
+        const node = idx.byId.get(nodeId);
+        if (node) await putNode({ ...node, scope });
+      },
       async setColor(nodeId, color) {
         const node = idx.byId.get(nodeId);
         if (node?.anchor) await putNode({ ...node, anchor: { ...node.anchor, color } });

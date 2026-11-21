@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { TreeIndex } from './tree';
-import type { DocRef, Highlight, Session, TreeNode } from './types';
+import type { DocRef, DocScope, Highlight, Session, TreeNode } from './types';
 
 /**
  * What is on screen for a session. Every level of the tree along the chosen
@@ -75,6 +75,8 @@ export interface Workspace {
   updateHighlight(id: string, patch: Partial<Pick<Highlight, 'color' | 'deleted'>>): Promise<void>;
   setNote(nodeId: string, text: string): Promise<void>;
   setColor(nodeId: string, color: string): Promise<void>;
+  /** Sets how much of the paper this conversation sends with each message. */
+  setScope(nodeId: string, scope: DocScope): Promise<void>;
   /** Records what a PDF node turned out to be once its file has been loaded. */
   setDoc(nodeId: string, doc: DocRef): Promise<void>;
   /** Deletes a branch for good, with every branch, message and highlight under it. */

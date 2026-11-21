@@ -33,7 +33,8 @@ export const gemini: Provider = {
         systemInstruction: { parts: [{ text: system }] },
         contents: turns.map((t) => ({
           role: t.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: t.content }],
+          // The paper is a part of its own, first and unchanged, so Gemini's implicit caching can match it.
+          parts: t.doc ? [{ text: t.doc }, { text: t.content }] : [{ text: t.content }],
         })),
       }),
     });

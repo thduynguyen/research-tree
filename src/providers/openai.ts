@@ -27,7 +27,8 @@ export const openai: Provider = {
       body: JSON.stringify({
         model: model.id,
         stream: true,
-        messages: [{ role: 'system', content: system }, ...turns],
+        // The paper comes first and unchanged in every conversation, which is what OpenAI's automatic caching keys on.
+        messages: [{ role: 'system', content: system }, ...turns.map((t) => ({ role: t.role, content: t.doc ? `${t.doc}\n\n${t.content}` : t.content }))],
       }),
     });
     if (!res.ok) throw await httpError(res);

@@ -28,7 +28,20 @@ export const anthropic: Provider = {
         model: model.id,
         max_tokens: Math.min(DEFAULT_MAX_OUTPUT, model.maxOutput ?? DEFAULT_MAX_OUTPUT),
         system,
-        messages: turns,
+        // The paper is its own block with its own cache mark, so every
+        // conversation in the tree reads the same cached copy. One hour, not the
+        // default five minutes: questions while reading come minutes apart.
+        messages: turns.map((t) => ({
+          role: t.role,
+          content: t.doc
+            ? [
+                { type: 'text' as const, text: t.doc, cache_control: { type: 'ephemeral' as const, ttl: '1h' as const } },
+                { type: 'text' as const, text: t.content || '(no question yet)' },
+              ]
+            : t.content,
+        })),
+        // And the conversation so far, for follow-up questions in the same chat.
+        cache_control: { type: 'ephemeral', ttl: '1h' },
       },
       { signal },
     );

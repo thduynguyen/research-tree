@@ -75,7 +75,7 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
       const text = print ? (await db.files.get(print))?.text : undefined;
       if (print && text) texts.set(print, text);
     }
-    const turns = buildContext(index, nodeId, (print) => texts.get(print));
+    const turns = buildContext(index, nodeId, (print) => texts.get(print), node.scope ?? 'paper');
     const provider = providers[model.provider];
     const key = getSettings().keys[model.provider] ?? '';
     if (model.provider !== 'demo' && !key) throw new Error(`No ${provider.label} key. Add one in Settings.`);

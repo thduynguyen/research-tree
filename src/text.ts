@@ -61,3 +61,28 @@ export function paperLabel(d: { title?: string; author?: string; year?: string; 
   const last = d.author.trim().split(/\s+/).pop()!;
   return `${last}${d.year ?? ''}${d.year ? d.venue ?? '' : ''} - ${title}`;
 }
+
+/**
+ * Every place `query` occurs in `text`, as [start, end) offsets. Case and
+ * whitespace are ignored: a PDF page's text has no spaces where lines break,
+ * so "attention mechanism" must also match "attention" at the end of one line
+ * followed by "mechanism" on the next.
+ */
+export function findAll(text: string, query: string, limit = 2000): [number, number][] {
+  const wanted = squash(query).toLowerCase();
+  if (!wanted) return [];
+  const index: number[] = [];
+  let compact = '';
+  for (let i = 0; i < text.length; i++) {
+    if (/\s/.test(text[i])) continue;
+    index.push(i);
+    // A few letters change length when lower-cased; keep those as they are so the offsets stay true.
+    const lower = text[i].toLowerCase();
+    compact += lower.length === 1 ? lower : text[i];
+  }
+  const out: [number, number][] = [];
+  for (let at = compact.indexOf(wanted); at >= 0 && out.length < limit; at = compact.indexOf(wanted, at + wanted.length)) {
+    out.push([index[at], index[at + wanted.length - 1] + 1]);
+  }
+  return out;
+}

@@ -422,3 +422,17 @@ mark[data-kind='ask'] { border-bottom-color: var(--accent); }
 /* Opens a branch's own branches in the next column: their number and a double arrow. */
 .btn.subtree { display: inline-flex; align-items: center; gap: 3px; min-height: 26px; padding: 0 7px; margin-right: 4px; border-radius: 13px; font-size: 12px; color: var(--accent-ink); background: var(--accent-tint); border-color: #c9d4fa; }
 .btn.subtree[aria-expanded='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Search within a PDF */
+.find-slot:empty { display: none; }
+.find-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--ground); }
+.find-bar input { flex: 1 1 140px; min-width: 0; min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font: inherit; }
+.find-bar .btn { min-height: 30px; }
+.find-count { min-width: 76px; font-size: 12px; color: var(--muted); text-align: right; }
+/* Hits are orange so they are not taken for the reader's own highlights; the one being shown is ringed. */
+.textLayer mark[data-find] { background: rgba(255, 140, 0, 0.5); cursor: text; border-radius: 2px; }
+.textLayer mark[data-find='current'] { background: rgba(255, 110, 0, 0.75); box-shadow: 0 0 0 2px var(--ink); }
+
+/* How much of the paper a conversation sends */
+.scope { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.scope select { flex: 1 1 140px; min-width: 0; min-height: 28px; padding: 0 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 12px; }

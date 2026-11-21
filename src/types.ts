@@ -82,6 +82,11 @@ export interface TreeNode {
   /** Present when the node is a PDF to read rather than a chat thread. */
   doc?: DocRef;
   /**
+   * For a conversation about a PDF: how much of the paper each request
+   * carries. Absent means 'paper': all of it, as a shared, cacheable start.
+   */
+  scope?: DocScope;
+  /**
    * Present (possibly empty) when the node is a written annotation rather than
    * a chat thread: Markdown with LaTeX math, and no model involved.
    */
@@ -117,6 +122,13 @@ export interface Message {
 export interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * On the first turn only: the text of the paper the tree is rooted at. It is
+   * kept apart from `content` and is word for word the same in every
+   * conversation of the tree, so that a provider's prompt cache can serve it
+   * to all of them after the first request.
+   */
+  doc?: string;
 }
 
 export interface DbDump {
@@ -136,3 +148,10 @@ export const pageOf = (messageId: string) => (messageId.startsWith('pdf') ? Numb
 export const NOTE_KEY = 'note';
 /** The text a highlight is in, whichever way it was stored. */
 export const highlightKey = (h: Highlight) => h.messageId ?? pageKey(h.page ?? 1);
+
+/**
+ * How much of a paper goes to the model with each message: all of it (as a
+ * start shared by every conversation in the tree, which providers cache), the
+ * passage's page and the first page, or nothing beyond the passage itself.
+ */
+export type DocScope = 'paper' | 'page' | 'none';

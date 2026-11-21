@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { db } from '../db';
 import { docRefOf, fetchPdf, openPdf, pdfjs, storeFile, type PdfDocument } from '../pdf';
-import { locate } from '../text';
+import { findAll, locate } from '../text';
 import { pageKey, type TreeNode } from '../types';
 import { useWorkspace } from '../workspace';
 import { hoverProps, wrapRange, type Mark } from './MessageBody';
@@ -122,7 +123,7 @@ function Page({ pdf, number, nodeId, base, renderWidth, marks, onMark, onHover }
   // Marks are redrawn in place, in one step: the old ones are unwrapped and
   // the current ones wrapped again, so the page never shows without them and a
   // panel looking for a passage always finds it.
-  const marksKey = marks.map((m) => `${m.id}:${m.start}:${m.end}:${m.active}:${!!m.hidden}:${m.color ?? ''}:${m.tint ?? ''}:${m.kind ?? ''}:${m.hint ?? ''}`).join('|');
+  const marksKey = marks.map((m) => `${m.id}:${m.start}:${m.end}:${m.active}:${!!m.hidden}:${m.color ?? ''}:${m.tint ?? ''}:${m.kind ?? ''}:${m.hint ?? ''}:${m.found ?? ''}`).join('|');
   useLayoutEffect(() => {
     const el = layer.current;
     if (!el || !built) return;
@@ -150,7 +151,8 @@ function Page({ pdf, number, nodeId, base, renderWidth, marks, onMark, onHover }
         data-node-id={nodeId}
         data-msg-id={pageKey(number)}
         onClick={(e) => {
-          const mark = (e.target as HTMLElement).closest<HTMLElement>('mark');
+          // A search hit can sit inside a highlight; the click belongs to the highlight.
+          const mark = (e.target as HTMLElement).closest<HTMLElement>('mark[data-child], mark[data-hl]');
           if (mark) onMark(mark);
         }}
         {...hoverProps(onHover)}
@@ -236,13 +238,17 @@ interface Props {
   onHover: (id: string | null, at?: DOMRect) => void;
   /** The marks to draw on one page, worked out by the panel so that all kinds of text share the rules. */
   marksIn: (key: string) => (Mark & { quote: string })[];
+  /** Whether the search bar is open, and the place in the panel where it is drawn. */
+  finding: boolean;
+  findSlot: HTMLElement | null;
+  onFinding: (open: boolean) => void;
 }
 
 /** A PDF node: the pages, its highlights and the anchors of its branches. */
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 4;
 
-export function PdfView({ node, zoom, onZoom, onOpen, onHighlight, onHover, marksIn }: Props) {
+export function PdfView({ node, zoom, onZoom, onOpen, onHighlight, onHover, marksIn, finding, findSlot, onFinding }: Props) {
   const ws = useWorkspace();
   const doc = node.doc!;
   const frame = useRef<HTMLDivElement>(null);
@@ -379,6 +385,123 @@ export function PdfView({ node, zoom, onZoom, onOpen, onHighlight, onHover, mark
     scroller.scrollTop = (scroller.scrollTop + k.y) * k.ratio - k.y;
   }, [zoom]);
 
+  // Search within the document. The whole PDF is searched, not only the pages
+  // drawn so far, using each page's text as its text layer will have it.
+  const [query, setQuery] = useState('');
+  const [hits, setHits] = useState<{ page: number; start: number; end: number; quote: string }[]>([]);
+  const [hitAt, setHitAt] = useState(0);
+  // True until the search for the current words has finished (the first one reads every page).
+  const [searching, setSearching] = useState(false);
+  // Every page's text, read once (starting when the search bar opens) and shared by all searches.
+  const pageTexts = useRef<Promise<string[]> | null>(null);
+  const findInput = useRef<HTMLInputElement>(null);
+  const pdfReady = status.kind === 'ready' ? status.pdf : null;
+  const readPages = () => {
+    pageTexts.current ??= (async () => {
+      const texts: string[] = [];
+      for (let n = 1; n <= pdfReady!.numPages; n++) {
+        const content = await (await pdfReady!.getPage(n)).getTextContent();
+        texts.push(content.items.map((item) => ('str' in item ? item.str : '')).join(''));
+      }
+      return texts;
+    })();
+    return pageTexts.current;
+  };
+  useEffect(() => {
+    if (!finding) return;
+    findInput.current?.focus();
+    findInput.current?.select();
+    if (pdfReady) void readPages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finding, findSlot, pdfReady]);
+  useEffect(() => {
+    if (!finding || !pdfReady || !query.trim()) {
+      setHits([]);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    // Wait for a pause in typing before searching.
+    const timer = window.setTimeout(async () => {
+      const texts = await readPages();
+      if (cancelled) return;
+      const found = texts.flatMap((text, i) =>
+        findAll(text, query).map(([start, end]) => ({ page: i + 1, start, end, quote: text.slice(start, end) })),
+      );
+      // Start from the first hit on or after the page being read.
+      const scroller = frame.current?.closest<HTMLElement>('.pane-scroll');
+      const top = scroller?.getBoundingClientRect().top ?? 0;
+      const reading = [...(scroller?.querySelectorAll('.pdf-page') ?? [])].findIndex((p) => p.getBoundingClientRect().bottom > top + 40) + 1;
+      const from = found.findIndex((h) => h.page >= reading);
+      setHits(found);
+      setHitAt(from < 0 ? 0 : from);
+      setSearching(false);
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finding, query, pdfReady]);
+
+  // Bring the current hit into view: to its page if that has not been drawn yet, then to the hit.
+  useEffect(() => {
+    const hit = hits[hitAt];
+    const scroller = frame.current?.closest<HTMLElement>('.pane-scroll');
+    if (!hit || !scroller) return;
+    let timer = 0;
+    let tries = 0;
+    const go = () => {
+      const box = scroller.getBoundingClientRect();
+      const mark = scroller.querySelector<HTMLElement>('mark[data-find="current"]');
+      if (mark) {
+        const at = mark.getBoundingClientRect();
+        if (at.top < box.top + 8 || at.bottom > box.bottom - 8) scroller.scrollTop += at.top - box.top - scroller.clientHeight / 3;
+        if (at.left < box.left + 8 || at.right > box.right - 8) scroller.scrollLeft += at.left - box.left - scroller.clientWidth / 3;
+        return;
+      }
+      const sheet = scroller.querySelectorAll<HTMLElement>('.pdf-page')[hit.page - 1];
+      const place = sheet?.getBoundingClientRect();
+      if (place && tries === 0 && (place.bottom < box.top || place.top > box.bottom)) scroller.scrollTop += place.top - box.top;
+      if (tries++ < 30) timer = window.setTimeout(go, 150);
+    };
+    go();
+    return () => clearTimeout(timer);
+  }, [hits, hitAt]);
+
+  const step = (by: number) => hits.length && setHitAt((i) => (i + by + hits.length) % hits.length);
+  const closeFind = () => {
+    setHits([]);
+    onFinding(false);
+  };
+  const findBar =
+    finding && findSlot
+      ? createPortal(
+          <div className="find-bar" role="search">
+            <input
+              ref={findInput}
+              type="search"
+              aria-label="Find in this PDF"
+              placeholder="Find in this PDF"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') step(e.shiftKey ? -1 : 1);
+                if (e.key === 'Escape') closeFind();
+              }}
+            />
+            <span className="find-count" role="status">
+              {!query.trim() ? '' : hits.length ? `${hitAt + 1} of ${hits.length}` : searching ? 'Searching…' : 'No matches'}
+            </span>
+            <button className="btn" disabled={!hits.length} onClick={() => step(-1)} title="Previous match (Shift+Enter)">Previous</button>
+            <button className="btn" disabled={!hits.length} onClick={() => step(1)} title="Next match (Enter)">Next</button>
+            <button className="btn" onClick={closeFind} title="Close search (Escape)">Close</button>
+          </div>,
+          findSlot,
+        )
+      : null;
+
   if (status.kind === 'loading') return <p className="hint">Loading the PDF…</p>;
   if (status.kind === 'missing') {
     return (
@@ -410,6 +533,7 @@ export function PdfView({ node, zoom, onZoom, onOpen, onHighlight, onHover, mark
 
   return (
     <div className="pdf" ref={frame} style={{ '--total-scale-factor': pageWidth ? pageWidth / status.base.w : 1 } as React.CSSProperties}>
+      {findBar}
       {pageWidth > 0 &&
         Array.from({ length: status.pdf.numPages }, (_, i) => (
           <Page
@@ -419,7 +543,14 @@ export function PdfView({ node, zoom, onZoom, onOpen, onHighlight, onHover, mark
             nodeId={node.id}
             base={status.base}
             renderWidth={renderWidth || pageWidth}
-            marks={marksIn(pageKey(i + 1))}
+            marks={[
+              ...marksIn(pageKey(i + 1)),
+              ...hits.flatMap((h, n) =>
+                h.page === i + 1
+                  ? [{ id: `find${n}`, start: h.start, end: h.end, quote: h.quote, active: false, found: n === hitAt ? ('current' as const) : ('hit' as const) }]
+                  : [],
+              ),
+            ]}
             onHover={onHover}
             onMark={(mark) => {
               const at = mark.getBoundingClientRect();

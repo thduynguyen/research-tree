@@ -1,7 +1,7 @@
 {
   "name": "research-tree",
   "version": "1.0.0",
-  "description": "",
+  "description": "A branching reading and thinking tool: highlight, annotate and ask about passages in PDFs and chats, as a tree.",
   "scripts": {
     "test": "vitest run",
     "dev": "vite",
@@ -10,7 +10,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "private": "true",
   "dependencies": {

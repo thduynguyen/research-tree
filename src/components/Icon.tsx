@@ -7,6 +7,12 @@ const paths: Record<string, ReactNode> = {
   popout: <path d="M9 3h4v4M13 3L7.5 8.5M11 9.5V13H3V5h3.5" strokeLinejoin="round" />,
   back: <path d="M9 3.5L4.5 8 9 12.5M5 8h7" strokeLinejoin="round" />,
   forward: <path d="M7 3.5L11.5 8 7 12.5M11 8H4" strokeLinejoin="round" />,
+  search: (
+    <>
+      <circle cx="7" cy="7" r="4.2" />
+      <path d="M10.2 10.2L13.5 13.5" />
+    </>
+  ),
   plus: <path d="M8 3.5v9M3.5 8h9" />,
   close: <path d="M4 4l8 8M12 4l-8 8" />,
   lock: (

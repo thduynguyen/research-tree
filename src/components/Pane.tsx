@@ -126,6 +126,25 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
       // The zoom then lasts for this tab only.
     }
   };
+  // Search within a PDF. The find shortcut opens it while the pointer or the
+  // keyboard focus is in this panel; elsewhere the browser's own find is left alone.
+  const [finding, setFinding] = useState(false);
+  const [findSlot, setFindSlot] = useState<HTMLElement | null>(null);
+  const hovering = useRef(false);
+  const section = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!node.doc) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'f' || !(e.metaKey || e.ctrlKey) || e.altKey) return;
+      if (!hovering.current && !section.current?.contains(document.activeElement)) return;
+      e.preventDefault();
+      setFinding(true);
+      section.current?.querySelector<HTMLInputElement>('.find-bar input')?.select();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [node.doc]);
+
   const at = (r: DOMRect, lift = 60) => ({
     x: Math.min(Math.max(r.left + r.width / 2, 170), window.innerWidth - 170),
     y: Math.min(r.bottom + 8, window.innerHeight - lift),
@@ -258,6 +277,9 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
       aria-label={`${label}: ${node.title}`}
       data-pane-id={nodeId}
       style={style}
+      ref={section}
+      onMouseEnter={() => { hovering.current = true; }}
+      onMouseLeave={() => { hovering.current = false; }}
     >
       <header className={confirmingHere ? 'pane-head confirming' : 'pane-head'}>
         {isBranch ? (
@@ -271,6 +293,9 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
           </div>
         )}
         <div className="pane-actions">
+          {node.doc && (
+            <IconButton icon="search" pressed={finding} label="Find in this PDF (Ctrl+F or ⌘F with the pointer over it)" onClick={() => setFinding(!finding)} />
+          )}
           {node.doc && (
             <span className="zoom" role="group" aria-label="Zoom">
               <button className="icon-btn" aria-label="Zoom out" title="Zoom out" onClick={() => setZoom(zoom - 0.25)}>−</button>
@@ -355,6 +380,7 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
         )}
       </header>
 
+      {node.doc && <div className="find-slot" ref={setFindSlot} />}
       <div className="pane-body">
       <div className="pane-scroll" ref={scroller}>
         {home && node.parentId && (
@@ -372,7 +398,18 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
           </blockquote>
         )}
 
-        {node.doc && <PdfView node={node} zoom={zoom} onZoom={setZoom} onOpen={openMark} onHighlight={openHighlight} onHover={hoverHighlight} marksIn={marksIn} />}
+        {node.doc && <PdfView
+            node={node}
+            zoom={zoom}
+            onZoom={setZoom}
+            onOpen={openMark}
+            onHighlight={openHighlight}
+            onHover={hoverHighlight}
+            marksIn={marksIn}
+            finding={finding}
+            findSlot={findSlot}
+            onFinding={setFinding}
+          />}
 
         {isNote &&
           (editingNote ? (

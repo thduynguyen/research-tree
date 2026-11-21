@@ -35,6 +35,8 @@ export interface Mark {
   kind?: 'note' | 'ask';
   /** Tooltip, for example the text of the note. */
   hint?: string;
+  /** A search result, not something the reader marked: one of the hits, or the one being shown. */
+  found?: 'hit' | 'current';
 }
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -61,6 +63,12 @@ export function wrapRange(el: HTMLElement, mark: Mark) {
     const mid = h.from > 0 ? h.node.splitText(h.from) : h.node;
     if (h.to - h.from < mid.data.length) mid.splitText(h.to - h.from);
     const span = document.createElement('mark');
+    if (mark.found) {
+      span.dataset.find = mark.found;
+      mid.replaceWith(span);
+      span.appendChild(mid);
+      continue;
+    }
     span.tabIndex = 0;
     span.setAttribute('role', 'button');
     if (mark.color) {

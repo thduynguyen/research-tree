@@ -1,4 +1,4 @@
-import { pageOf, type ChatTurn, type Highlight, type Message, type TreeNode } from './types';
+import { pageOf, type ChatTurn, type DocScope, type Highlight, type Message, type TreeNode } from './types';
 
 export interface TreeIndex {
   byId: Map<string, TreeNode>;
@@ -81,15 +81,26 @@ export const SYSTEM_PROMPT =
   'The conversation can contain side branches, marked "[Side branch on the passage: ...]". ' +
   'In a side branch the user is asking about that specific passage from the message or document just before it; ' +
   'A document the user is reading appears as "[Document: ...]" followed by its text, page by page. ' +
+  'Sometimes only some of its pages, or none, are included, to keep requests small. If an answer needs text you were not given, ' +
+  'say so, and that the user can switch this conversation to send the whole paper. ' +
   'answer in that context. Be precise and concise, and use Markdown.';
 
 /**
  * The turns sent to the model for a reply in `nodeId`: each ancestor's messages
  * up to the message the next branch is anchored to, a marker naming the quoted
- * passage, then the node's own messages. A PDF on the way contributes its
- * text, which `docText` supplies per fingerprint when this device has it.
+ * passage, then the node's own messages. A PDF on the way contributes text,
+ * which `docText` supplies per fingerprint when this device has it. By default
+ * that is the whole paper, placed first and identical for every conversation
+ * under it, so that the provider's prompt cache bills it at a fraction after
+ * the first request. `scope` can cut it to the passage's page plus the first
+ * page, or to nothing.
  */
-export function buildContext(idx: TreeIndex, nodeId: string, docText: (fingerprint: string) => string[] | undefined = () => undefined): ChatTurn[] {
+export function buildContext(
+  idx: TreeIndex,
+  nodeId: string,
+  docText: (fingerprint: string) => string[] | undefined = () => undefined,
+  scope: DocScope = 'paper',
+): ChatTurn[] {
   const chain: TreeNode[] = [];
   let cur = idx.byId.get(nodeId);
   while (cur) {
@@ -97,7 +108,7 @@ export function buildContext(idx: TreeIndex, nodeId: string, docText: (fingerpri
     cur = cur.parentId ? idx.byId.get(cur.parentId) : undefined;
   }
 
-  const raw: ChatTurn[] = [];
+  const raw: (ChatTurn & { shared?: boolean })[] = [];
   chain.forEach((node, i) => {
     if (node.anchor && i > 0) {
       const page = pageOf(node.anchor.messageId);
@@ -108,11 +119,26 @@ export function buildContext(idx: TreeIndex, nodeId: string, docText: (fingerpri
       raw.push({ role: 'user', content: `[The user's own note on that passage: ${node.note.trim()}]` });
     }
     if (node.doc) {
-      const pages = docText(node.doc.fingerprint);
-      const body = pages
-        ? pages.map((text, p) => `--- Page ${p + 1} ---\n${text}`).join('\n\n')
-        : '(The text of this document is not available on this device.)';
-      raw.push({ role: 'user', content: `[Document: "${node.doc.title}"]\n\n${body}` });
+      const pages = scope === 'none' ? undefined : docText(node.doc.fingerprint);
+      if (scope === 'none') {
+        raw.push({ role: 'user', content: `[Document: "${node.doc.title}". Its text is not included; only the passage below is.]` });
+      } else if (!pages) {
+        raw.push({ role: 'user', content: `[Document: "${node.doc.title}"]\n\n(The text of this document is not available on this device.)` });
+      } else {
+        const anchor = chain[i + 1]?.anchor;
+        const passagePage = anchor ? pageOf(anchor.messageId) : undefined;
+        const wanted =
+          scope === 'paper'
+            ? pages.map((_, p) => p + 1)
+            : [...new Set([1, ...(passagePage ? [passagePage] : [])])].filter((p) => p <= pages.length);
+        const body = wanted.map((p) => `--- Page ${p} ---\n${pages[p - 1]}`).join('\n\n');
+        const partial = wanted.length < pages.length;
+        const header = partial
+          ? `[Document: "${node.doc.title}", ${pages.length} pages. Only page${wanted.length === 1 ? '' : 's'} ${wanted.join(' and ')} ${wanted.length === 1 ? 'is' : 'are'} included below.]`
+          : `[Document: "${node.doc.title}"]`;
+        // The whole paper at the very start is the same in every conversation, and is kept apart for caching.
+        raw.push({ role: 'user', content: `${header}\n\n${body}`, shared: !partial && raw.length === 0 });
+      }
     }
     let msgs = idx.messagesOf.get(node.id) ?? [];
     const next = chain[i + 1];
@@ -129,8 +155,9 @@ export function buildContext(idx: TreeIndex, nodeId: string, docText: (fingerpri
   const turns: ChatTurn[] = [];
   for (const t of raw) {
     const last = turns[turns.length - 1];
-    if (last && last.role === t.role) last.content += '\n\n' + t.content;
-    else turns.push({ ...t });
+    if (t.shared) turns.push({ role: 'user', content: '', doc: t.content });
+    else if (last && last.role === t.role) last.content = last.content ? `${last.content}\n\n${t.content}` : t.content;
+    else turns.push({ role: t.role, content: t.content });
   }
   if (turns[0]?.role === 'assistant') turns.unshift({ role: 'user', content: '(conversation start)' });
   return turns;

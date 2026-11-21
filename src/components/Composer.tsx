@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { isBusy, sendMessage, stop, useLive } from '../chat';
 import { keyedProviders } from '../providers';
 import { DEMO_MODEL, defaultModel, useSettings } from '../settings';
-import type { ModelRef, ProviderId, TreeNode } from '../types';
+import type { DocScope, ModelRef, ProviderId, TreeNode } from '../types';
+import { useWorkspace } from '../workspace';
 
 const encode = (m: ModelRef) => `${m.provider}|${m.model}`;
 const decode = (v: string): ModelRef => {
@@ -12,6 +13,12 @@ const decode = (v: string): ModelRef => {
 
 export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean }) {
   const settings = useSettings();
+  const ws = useWorkspace();
+  // The paper this conversation is about, if any: the nearest PDF above it in the tree.
+  let paper: TreeNode | undefined;
+  for (let cur = node.parentId ? ws.idx.byId.get(node.parentId) : undefined; cur && !paper; cur = cur.parentId ? ws.idx.byId.get(cur.parentId) : undefined) {
+    if (cur.doc) paper = cur;
+  }
   useLive();
   const busy = isBusy(node.id);
   const [text, setText] = useState('');
@@ -54,6 +61,20 @@ export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boole
           }
         }}
       />
+      {paper && (
+        <label className="scope">
+          Paper context
+          <select
+            value={node.scope ?? 'paper'}
+            title="How much of the paper the model is given with each message"
+            onChange={(e) => void ws.setScope(node.id, e.target.value as DocScope)}
+          >
+            <option value="paper">the whole paper, cached{paper.doc!.pages ? ` (${paper.doc!.pages} pages)` : ''}</option>
+            <option value="page">only the passage's page and page 1</option>
+            <option value="none">only the passage</option>
+          </select>
+        </label>
+      )}
       <div className="composer-row">
         <select aria-label="Model" value={encode(model)} onChange={(e) => setPicked(decode(e.target.value))}>
           {keyedProviders.map((p) =>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeDumps, exportFiles } from './export';
-import { locate, paperLabel, pdfUrlOf, whenAndWhere } from './text';
+import { findAll, locate, paperLabel, pdfUrlOf, whenAndWhere } from './text';
 import { buildContext, buildIndex, pathFrom, summarize } from './tree';
 import type { DbDump, Message, TreeNode } from './types';
 import { choosePath, resolveView } from './workspace';
@@ -124,13 +124,36 @@ describe('PDF nodes', () => {
   const ask: TreeNode = { ...node('ask', 'paper'), anchor: { messageId: 'pdf2', start: 0, end: 5, quote: 'the claim' } };
   const pdfIdx = buildIndex([paper, ask], [msg('m1', 'ask', 'user', 'is this right?', 1)]);
 
-  it('give the model the document text and the page of the passage', () => {
-    const turns = buildContext(pdfIdx, 'ask', (print) => (print === 'f1' ? ['first page', 'second page'] : undefined));
-    expect(turns).toHaveLength(1);
-    expect(turns[0].content).toContain('[Document: "A Paper"]');
+  const three = (print: string) => (print === 'f1' ? ['first page', 'second page', 'third page'] : undefined);
+
+  it('put the whole paper first and apart, identical for every conversation under it', () => {
+    const other: TreeNode = { ...node('ask2', 'paper'), anchor: { messageId: 'pdf3', start: 0, end: 5, quote: 'another claim' } };
+    const both = buildIndex([paper, ask, other], [msg('m1', 'ask', 'user', 'is this right?', 1), msg('m2', 'ask2', 'user', 'and this?', 2)]);
+    const a = buildContext(both, 'ask', three);
+    const b = buildContext(both, 'ask2', three);
+    expect(a).toHaveLength(1);
+    expect(a[0].doc).toContain('[Document: "A Paper"]');
+    expect(a[0].doc).toContain('--- Page 3 ---\nthird page');
+    // The shared part is byte for byte the same, which is what lets a prompt cache serve it.
+    expect(b[0].doc).toBe(a[0].doc);
+    expect(a[0].content).toBe('[Side branch on the passage on page 2: "the claim"]\n\nis this right?');
+    expect(b[0].content).toBe('[Side branch on the passage on page 3: "another claim"]\n\nand this?');
+  });
+
+  it('send only the passage\'s page and the first page when asked to', () => {
+    const turns = buildContext(pdfIdx, 'ask', three, 'page');
+    expect(turns[0].doc).toBeUndefined();
+    expect(turns[0].content).toContain('Only pages 1 and 2 are included below');
     expect(turns[0].content).toContain('--- Page 2 ---\nsecond page');
-    expect(turns[0].content).toContain('[Side branch on the passage on page 2: "the claim"]');
+    expect(turns[0].content).not.toContain('third page');
     expect(turns[0].content.endsWith('is this right?')).toBe(true);
+  });
+
+  it('send only the passage when asked to', () => {
+    const text = buildContext(pdfIdx, 'ask', three, 'none')[0].content;
+    expect(text).not.toContain('first page');
+    expect(text).toContain('Its text is not included');
+    expect(text).toContain('"the claim"');
   });
 
   it('say so when the text is not on this device', () => {
@@ -150,6 +173,24 @@ describe('locate', () => {
   });
   it('gives up when the quote is not on the page', () => {
     expect(locate(page, 0, 5, 'not here')).toBeNull();
+  });
+});
+
+describe('findAll', () => {
+  // No space where the line broke between "attention" and "mechanism".
+  const page = 'An attentionmechanism relates positions. Self-Attention is an Attention mechanism.';
+
+  it('finds every occurrence, whatever the case', () => {
+    const hits = findAll(page, 'attention');
+    expect(hits).toHaveLength(3);
+    expect(hits.map(([s, e]) => page.slice(s, e))).toEqual(['attention', 'Attention', 'Attention']);
+  });
+  it('matches across a line break that left no space, and across spaces in the query', () => {
+    expect(findAll(page, 'attention mechanism').map(([s, e]) => page.slice(s, e))).toEqual(['attentionmechanism', 'Attention mechanism']);
+  });
+  it('returns nothing for an empty or absent query', () => {
+    expect(findAll(page, '   ')).toEqual([]);
+    expect(findAll(page, 'transformer')).toEqual([]);
   });
 });
 
