@@ -1,6 +1,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { db } from './db';
+import { readWorkspaceFile, WORKSPACE } from './folder';
 import type { DocRef } from './types';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -77,6 +78,7 @@ export async function extractText(pdf: PdfDocument): Promise<string[]> {
  * asks for the downloaded file instead.
  */
 export async function fetchPdf(url: string): Promise<ArrayBuffer> {
+  if (url.startsWith(WORKSPACE)) return readWorkspaceFile(url.slice(WORKSPACE.length));
   const res = await fetch(url);
   if (!res.ok) throw new Error(`The server answered ${res.status}.`);
   return res.arrayBuffer();

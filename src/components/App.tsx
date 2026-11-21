@@ -487,6 +487,7 @@ export function App() {
         <SelectionPopover />
         {openingPdf && (
           <OpenPdf
+            folder={folder ? (projects ?? []).find((p) => p.id === openingPdf.projectId && !p.deleted)?.name ?? 'Inbox' : undefined}
             onClose={() => setOpeningPdf(null)}
             onOpen={(doc) => {
               setOpeningPdf(null);

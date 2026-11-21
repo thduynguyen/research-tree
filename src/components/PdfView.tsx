@@ -507,7 +507,7 @@ export function PdfView({ node, zoom, onZoom, onOpen, onHighlight, onHover, mark
     return (
       <div className="pdf-missing">
         <p>{status.reason}</p>
-        {doc.url && (
+        {doc.url && /^https?:/.test(doc.url) && (
           <p>
             <a href={doc.url} target="_blank" rel="noopener noreferrer">Open the PDF in a new tab</a>
           </p>

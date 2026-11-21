@@ -156,6 +156,29 @@ export function slashCommands(): Promise<string[]> {
   return commandList;
 }
 
+export interface WorkspaceFile {
+  /** From the workspace's top, project folder first: what a link to the file stores. */
+  path: string;
+  /** Inside the project's folder: what the user is shown. */
+  name: string;
+  size: number;
+}
+
+/** A file kept in the workspace is linked as "workspace:<path>", which works on any computer that has the workspace. */
+export const WORKSPACE = 'workspace:';
+
+export const listWorkspace = (folder: string) =>
+  call<{ files: WorkspaceFile[] }>(`list?folder=${encodeURIComponent(folder)}`).then((body) => body.files);
+
+export async function readWorkspaceFile(path: string): Promise<ArrayBuffer> {
+  const s = getSettings();
+  const key = s.keys.custom;
+  if (!s.custom?.folder) throw new Error('This file is in the workspace folder, which needs the local helper.');
+  const res = await fetch(`${cleanUrl(s.custom.url)}/research-tree/file?path=${encodeURIComponent(path)}`, { headers: key ? { Authorization: `Bearer ${key}` } : {} });
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `${res.status} from the local server`);
+  return res.arrayBuffer();
+}
+
 /** Runs a shell command in a project's folder on the local server, passing on its output as it comes. */
 export async function runCommand(folder: string, command: string, signal: AbortSignal, onOutput: (text: string) => void): Promise<void> {
   const s = getSettings();
