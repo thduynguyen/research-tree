@@ -34,6 +34,9 @@ export function useLive() {
   return live;
 }
 
+/** What a reply from the shell is labelled with, in place of a model. */
+const SHELL: ModelRef = { provider: 'custom', model: 'shell' };
+
 /** The step waiting for a yes or no in this conversation, if any. */
 export function pendingApproval(nodeId: string): Approval | undefined {
   for (const entry of live.values()) if (entry.nodeId === nodeId && entry.approval) return entry.approval;
@@ -62,11 +65,15 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
   const t = Date.now();
   const hadMessages = (await db.messages.where('nodeId').equals(nodeId).count()) > 0;
   const userMsg: Message = { id: uid(), nodeId, role: 'user', content: text, createdAt: t, updatedAt: t };
-  const reply: Message = { id: uid(), nodeId, role: 'assistant', content: '', model, createdAt: t + 1, updatedAt: t };
+  // A "!command" is answered by the shell, not by a model, and is labelled so.
+  const shell = text.startsWith('!') && hasFolder();
+  const reply: Message = { id: uid(), nodeId, role: 'assistant', content: '', model: shell ? SHELL : model, createdAt: t + 1, updatedAt: t };
   await putMessage(userMsg);
   await putMessage(reply);
-  await putNode({ ...node, model });
-  updateSettings({ lastModel: model });
+  if (!shell) {
+    await putNode({ ...node, model });
+    updateSettings({ lastModel: model });
+  }
 
   // A root takes its name from the first question asked in it.
   if (!hadMessages && !node.parentId) {
@@ -106,7 +113,7 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
       return project?.name ?? 'Inbox';
     };
     // "!command" runs the command itself in the project's folder, with no model involved.
-    if (text.startsWith('!') && hasFolder()) {
+    if (shell) {
       entry.text = '```\n';
       await runCommand(await folderOf(), text.slice(1).trim(), controller.signal, (out) => {
         entry.text += out;
@@ -121,9 +128,16 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
     if (node.access && node.access !== 'ask' && levels.includes(node.access)) {
       // A server that keeps one running session per conversation needs only the new message:
       // exactly as typed, with the passage ahead of a branch's first question.
+      // Shell commands run since the model last answered here are not in its session yet: they go in with this message.
+      const earlier = messages.filter((m) => m.nodeId === nodeId && m.id !== userMsg.id && m.id !== reply.id && !m.deleted).sort((a, b) => a.createdAt - b.createdAt);
+      const ran: string[] = [];
+      for (let i = earlier.length - 1; i > 0 && earlier[i].role === 'assistant' && earlier[i].model?.model === SHELL.model; i -= 2) {
+        ran.unshift(`[I ran this shell command in the project folder: ${earlier[i - 1].content.slice(1).trim()}]\n${earlier[i].content}`);
+      }
+      const shellNotes = ran.length ? `${ran.join('\n\n')}\n\n` : '';
       const passage = !hadMessages && node.anchor && !text.startsWith('/') ? `[Side branch on the passage: "${node.anchor.quote}"]\n\n` : '';
       extra = {
-        research_tree: { level: node.access, folder: await folderOf(), session: node.id, parent: node.parentId ?? undefined, message: passage + text },
+        research_tree: { level: node.access, folder: await folderOf(), session: node.id, parent: node.parentId ?? undefined, message: text.startsWith('/') ? text : shellNotes + passage + text },
       };
     }
     await provider.stream({
