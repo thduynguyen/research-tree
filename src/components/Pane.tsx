@@ -4,6 +4,7 @@ import { useLive } from '../chat';
 import { kindLabel, pathFrom, preview, summarize } from '../tree';
 import { MAX_PINNED, freshNotes, useWorkspace } from '../workspace';
 import { Composer } from './Composer';
+import { LiveTerminal } from './LiveTerminal';
 import { IconButton } from './Icon';
 import { MessageBody } from './MessageBody';
 import { HIGHLIGHT_COLORS, MAX_ZOOM, MIN_ZOOM, PdfView } from './PdfView';
@@ -96,6 +97,10 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
   const isNote = node.note !== undefined;
   // A conversation can be shrunk to a few lines, like a note, and expanded again.
   const isChat = !isNote && !node.doc;
+  // A terminal panel is a full terminal unless switched to the saved, one-command-at-a-time kind.
+  const isTerminal = node.terminal !== undefined;
+  const [logMode, setLogMode] = useState(false);
+  const liveShell = isTerminal && !logMode;
   const mini = isChat && isBranch && ws.view.minimized.includes(nodeId);
   // A note opens ready to type in only where it was just created. Another tab
   // or device also sees the new, still empty note, and must not open an editor
@@ -381,7 +386,8 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
       </header>
 
       {node.doc && <div className="find-slot" ref={setFindSlot} />}
-      <div className="pane-body">
+      <div className={`pane-body${liveShell ? ' with-shell' : ''}`}>
+      {liveShell && <LiveTerminal node={node} />}
       <div className="pane-scroll" ref={scroller}>
         {home && node.parentId && (
           <div className="origin">
@@ -689,7 +695,14 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
         </div>
       )}
 
-      {isChat && !mini && <Composer node={node} autoFocus={ws.focus?.id === node.id && messages.length === 0} />}
+      {isTerminal && (
+        <div className="shell-switch">
+          <button className="link" onClick={() => setLogMode(!logMode)}>
+            {logMode ? 'Switch to the full terminal' : 'Switch to saved commands (one at a time, output kept with the session)'}
+          </button>
+        </div>
+      )}
+      {isChat && !mini && !liveShell && <Composer node={node} autoFocus={ws.focus?.id === node.id && messages.length === 0} />}
     </section>
   );
 }

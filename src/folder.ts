@@ -179,6 +179,44 @@ export async function readWorkspaceFile(path: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
+/** The name of the folder, in the workspace, of the project a node's session belongs to. */
+export async function projectFolderOf(nodeId: string): Promise<string> {
+  let root = await db.nodes.get(nodeId);
+  while (root?.parentId) root = await db.nodes.get(root.parentId);
+  const session = root ? await db.sessions.filter((s) => s.rootNodeId === root!.id && !s.deleted).first() : undefined;
+  const project = session?.projectId ? await db.projects.get(session.projectId) : undefined;
+  return project?.name ?? 'Inbox';
+}
+
+const termUrl = (path: string) => `${cleanUrl(getSettings().custom?.url ?? '')}/research-tree/term/${path}`;
+const termHeaders = (): Record<string, string> => {
+  const key = getSettings().keys.custom;
+  return key ? { Authorization: `Bearer ${key}` } : {};
+};
+async function termPost(path: string, body: BodyInit, json = true): Promise<void> {
+  const res = await fetch(termUrl(path), { method: 'POST', headers: { ...termHeaders(), ...(json ? { 'Content-Type': 'application/json' } : {}) }, body });
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `${res.status} from the local server`);
+}
+
+/** A live shell on the local server, one per panel, named by the panel's id. */
+export const shell = {
+  /** Starts the panel's shell in the project's folder, or finds it still running. */
+  open: (id: string, folder: string, cols: number, rows: number) => termPost('open', JSON.stringify({ id, folder, cols, rows })),
+  input: (id: string, data: string) => termPost(`in?id=${encodeURIComponent(id)}`, data, false),
+  resize: (id: string, cols: number, rows: number) => termPost('size', JSON.stringify({ id, cols, rows })),
+  /** What the shell prints, from what it printed while nobody watched onward, until it ends. */
+  async output(id: string, signal: AbortSignal, onBytes: (bytes: Uint8Array) => void): Promise<void> {
+    const res = await fetch(termUrl(`out?id=${encodeURIComponent(id)}`), { headers: termHeaders(), signal });
+    if (!res.ok || !res.body) throw new Error((await res.json().catch(() => null))?.error ?? `${res.status} from the local server`);
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      onBytes(value);
+    }
+  },
+};
+
 /** Runs a shell command in a project's folder on the local server, passing on its output as it comes. */
 export async function runCommand(
   folder: string,

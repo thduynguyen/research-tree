@@ -53,8 +53,8 @@ Open **Settings** in the side panel.
   project's files, changing them and running commands (asking first, or not),
   keeping sessions there as files, and running a shell command you type after
   `!`. The choice appears under the message box and is off by default.
-  With such a server the side panel also offers a terminal: a panel where each
-  line is a command and its output is kept, to highlight and ask about.
+  With such a server the side panel also offers a terminal: a full one, or one
+  where each line is a command and its output is kept, to highlight and ask about.
 - **Demo.** A built-in stand-in that needs no key, for trying the interface.
 
 A question about a paper sends the paper's text with it, placed first so that
