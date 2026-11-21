@@ -1,12 +1,13 @@
 import { useSyncExternalStore } from 'react';
 import { db, putMessage, putNode, putSession, uid } from './db';
-import { providers } from './providers';
+import { answerStep } from './folder';
+import { providers, type Approval } from './providers';
 import { findModel, getSettings, isReady, updateSettings } from './settings';
 import { SYSTEM_PROMPT, buildContext, buildIndex, shorten } from './tree';
 import type { Message, ModelRef } from './types';
 
 /** Replies being streamed right now, by message id. Kept out of the database until done. */
-const live = new Map<string, { nodeId: string; text: string }>();
+const live = new Map<string, { nodeId: string; text: string; approval?: Approval }>();
 const aborters = new Map<string, AbortController>();
 const listeners = new Set<() => void>();
 let version = 0;
@@ -31,6 +32,23 @@ export function useLive() {
     () => version,
   );
   return live;
+}
+
+/** The step waiting for a yes or no in this conversation, if any. */
+export function pendingApproval(nodeId: string): Approval | undefined {
+  for (const entry of live.values()) if (entry.nodeId === nodeId && entry.approval) return entry.approval;
+  return undefined;
+}
+
+/** Sends the user's answer and takes the question off the screen. */
+export async function answerApproval(nodeId: string, allow: boolean) {
+  for (const entry of live.values()) {
+    if (entry.nodeId !== nodeId || !entry.approval) continue;
+    const { id } = entry.approval;
+    entry.approval = undefined;
+    notify();
+    await answerStep(id, allow).catch(() => undefined);
+  }
 }
 
 export const isBusy = (nodeId: string) => aborters.has(nodeId);
@@ -60,7 +78,7 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
 
   const controller = new AbortController();
   aborters.set(nodeId, controller);
-  const entry = { nodeId, text: '' };
+  const entry: { nodeId: string; text: string; approval?: Approval } = { nodeId, text: '' };
   live.set(reply.id, entry);
   notify();
 
@@ -101,6 +119,10 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
       turns,
       extra,
       signal: controller.signal,
+      onApproval: (approval) => {
+        entry.approval = approval;
+        notify();
+      },
       onText: (delta) => {
         entry.text += delta;
         notify();

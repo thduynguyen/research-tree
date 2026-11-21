@@ -15,4 +15,4 @@ export const realProviders: Provider[] = [...keyedProviders, custom];
 
 export { cleanUrl, serverExtras } from './openai';
 
-export type { ModelInfo, Provider } from './types';
+export type { Approval, ModelInfo, Provider } from './types';

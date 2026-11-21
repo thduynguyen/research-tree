@@ -19,7 +19,7 @@ function client(base: () => string, keep: (id: string) => boolean) {
         .map((m) => ({ id: m.id }));
     },
 
-    async stream({ key, model, system, turns, extra, signal, onText }: StreamRequest): Promise<void> {
+    async stream({ key, model, system, turns, extra, signal, onText, onApproval }: StreamRequest): Promise<void> {
       const res = await fetch(`${base()}/chat/completions`, {
         method: 'POST',
         signal,
@@ -37,6 +37,11 @@ function client(base: () => string, keep: (id: string) => boolean) {
         if (data === '[DONE]') break;
         const event = JSON.parse(data);
         if (event?.error) throw new Error(String(event.error.message ?? event.error));
+        const approval = event?.research_tree?.approval;
+        if (approval?.id) {
+          onApproval?.({ id: String(approval.id), summary: String(approval.summary ?? ''), detail: String(approval.detail ?? '') });
+          continue;
+        }
         const delta = event?.choices?.[0]?.delta?.content;
         if (typeof delta === 'string' && delta) onText(delta);
       }

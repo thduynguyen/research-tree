@@ -6,6 +6,14 @@ export interface ModelInfo {
   maxOutput?: number;
 }
 
+export interface Approval {
+  id: string;
+  /** One line saying what would be done. */
+  summary: string;
+  /** The full request, for the user who wants to read it. */
+  detail: string;
+}
+
 export interface StreamRequest {
   key: string;
   model: ModelInfo;
@@ -13,6 +21,8 @@ export interface StreamRequest {
   turns: ChatTurn[];
   /** Extra fields for the request body, for servers that understand them. */
   extra?: Record<string, unknown>;
+  /** A step the server wants the user's yes or no on before it goes ahead. */
+  onApproval?: (approval: Approval) => void;
   signal: AbortSignal;
   onText: (delta: string) => void;
 }

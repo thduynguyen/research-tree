@@ -268,6 +268,12 @@ h2, h3 { margin: 0; }
 .composer { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
 .composer textarea { width: 100%; resize: vertical; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .composer-row { display: flex; gap: 8px; }
+/* A step waiting for the user's yes or no. */
+.approval { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--danger); border-radius: 8px; background: var(--panel); font-size: 13px; }
+.approval-ask { font-weight: 600; }
+.approval-what { overflow-wrap: anywhere; }
+.approval pre { margin: 6px 0 0; max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.approval summary { cursor: pointer; color: var(--muted); }
 /* Slash commands offered while typing one. */
 .commands { list-style: none; margin: 0; padding: 4px; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); max-height: 240px; overflow-y: auto; }
 .commands button { width: 100%; min-height: 28px; padding: 2px 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }

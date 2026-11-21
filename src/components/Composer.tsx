@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { isBusy, sendMessage, stop, useLive } from '../chat';
+import { answerApproval, isBusy, pendingApproval, sendMessage, stop, useLive } from '../chat';
 import { slashCommands } from '../folder';
 import { realProviders } from '../providers';
 import { DEMO_MODEL, defaultModel, isReady, useSettings } from '../settings';
@@ -12,9 +12,19 @@ const decode = (v: string): ModelRef => {
   return { provider: v.slice(0, i) as ProviderId, model: v.slice(i + 1) };
 };
 
+/** A line of text in which `code` is set as code. */
+function MessageText({ text }: { text: string }) {
+  return (
+    <div className="approval-what">
+      {text.split('`').map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part))}
+    </div>
+  );
+}
+
 const ACCESS: Record<string, string> = {
   ask: 'answer only',
   read: 'may read the project folder',
+  approve: 'may change files and run commands, asking first',
   auto: 'may change files and run commands, without asking',
 };
 
@@ -43,14 +53,16 @@ export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boole
   const levels = model.provider === 'custom' ? settings.custom?.levels ?? [] : [];
   const access = node.access && levels.includes(node.access) ? node.access : 'ask';
 
-  // At the full level the server's tool takes slash commands; typing "/" lists them.
+  const full = access === 'auto' || access === 'approve';
+  const approval = pendingApproval(node.id);
+  // At the full levels the server's tool takes slash commands; typing "/" lists them.
   const [commands, setCommands] = useState<string[]>([]);
   const [choice, setChoice] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
-    if (access === 'auto') void slashCommands().then(setCommands);
+    if (full) void slashCommands().then(setCommands);
   }, [access]);
-  const typed = access === 'auto' && !dismissed && /^\/[^\s]*$/.test(text) ? text.slice(1).toLowerCase() : null;
+  const typed = full && !dismissed && /^\/[^\s]*$/.test(text) ? text.slice(1).toLowerCase() : null;
   const matches = typed === null ? [] : commands.filter((c) => c.toLowerCase().includes(typed)).sort((a, b) => Number(b.toLowerCase().startsWith(typed)) - Number(a.toLowerCase().startsWith(typed))).slice(0, 8);
   const pick = Math.min(choice, matches.length - 1);
   const complete = (name: string) => {
@@ -73,6 +85,20 @@ export function Composer({ node, autoFocus }: { node: TreeNode; autoFocus: boole
         send();
       }}
     >
+      {approval && (
+        <div className="approval" role="alertdialog" aria-label="Permission needed">
+          <div className="approval-ask">Allow this step?</div>
+          <MessageText text={approval.summary} />
+          <details>
+            <summary>Details</summary>
+            <pre>{approval.detail}</pre>
+          </details>
+          <div className="composer-row">
+            <button type="button" className="btn primary" onClick={() => void answerApproval(node.id, true)}>Allow</button>
+            <button type="button" className="btn" onClick={() => void answerApproval(node.id, false)}>Decline</button>
+          </div>
+        </div>
+      )}
       {matches.length > 0 && (
         <ul className="commands" role="listbox" aria-label="Commands">
           {matches.map((name, i) => (

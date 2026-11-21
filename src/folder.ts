@@ -156,5 +156,8 @@ export function slashCommands(): Promise<string[]> {
   return commandList;
 }
 
+/** Answers a step the server asked about. */
+export const answerStep = (id: string, allow: boolean) => call<{ ok: boolean }>('approve', { id, allow });
+
 export const gitState = () => call<GitState>('git');
 export const gitSave = (message?: string) => call<GitState>('git', { message });
