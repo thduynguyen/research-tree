@@ -12,18 +12,18 @@ import { putNode } from '../db';
 import { listRoot, readWorkspaceFile, saveWorkspaceFile, type WorkspaceFile } from '../folder';
 import { fuzzyScore, locate } from '../text';
 import type { TreeNode } from '../types';
+import { useWorkspace } from '../workspace';
 import type { Mark } from './MessageBody';
 import { FRAME_SELECTION } from './SelectionPopover';
 
 const VIM_KEY = 'rt.vim';
-const TREE_KEY = 'rt.codeTree';
 
 /** Marks on a file's text are filed under this key, one per file. */
 export const codeKey = (path: string) => `code:${path}`;
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 
 /** Finds a file by a few letters of its name, as editors do with their "go to file" box. */
-function Palette({ files, onPick, onClose }: { files: WorkspaceFile[]; onPick: (file: WorkspaceFile) => void; onClose: () => void }) {
+function Palette({ files, onPick, onClose }: { files: WorkspaceFile[]; onPick: (file: WorkspaceFile, where: 'beside' | 'below') => void; onClose: () => void }) {
   const [typed, setTyped] = useState('');
   const [choice, setChoice] = useState(0);
   const found = useMemo(
@@ -54,7 +54,7 @@ function Palette({ files, onPick, onClose }: { files: WorkspaceFile[]; onPick: (
             else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
               e.preventDefault();
               if (found.length) setChoice((pick + (e.key === 'ArrowDown' ? 1 : -1) + found.length) % found.length);
-            } else if (e.key === 'Enter' && found[pick]) onPick(found[pick].file);
+            } else if (e.key === 'Enter' && found[pick]) onPick(found[pick].file, e.shiftKey || e.altKey ? 'below' : 'beside');
           }}
         />
         <ul role="listbox">
@@ -62,15 +62,19 @@ function Palette({ files, onPick, onClose }: { files: WorkspaceFile[]; onPick: (
             const cut = file.name.lastIndexOf('/') + 1;
             return (
               <li key={file.path} role="option" aria-selected={i === pick}>
-                <button type="button" className={i === pick ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(file)}>
+                <button type="button" className={i === pick ? 'on' : ''} title="Open beside this file, as its branch" onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(file, 'beside')}>
                   <strong>{file.name.slice(cut)}</strong>
                   <span>{file.name.slice(0, cut)}</span>
+                </button>
+                <button type="button" className="below" title="Open below this file, in the same column" onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(file, 'below')}>
+                  below
                 </button>
               </li>
             );
           })}
           {!found.length && <li className="hint">No file matches.</li>}
         </ul>
+        <div className="palette-foot">Enter opens beside this file · Shift+Enter opens below it</div>
       </div>
     </div>
   );
@@ -191,8 +195,6 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
   const [image, setImage] = useState('');
   const [vimOn, setVimOn] = useState(() => localStorage.getItem(VIM_KEY) === '1');
   const save = useRef<() => void>(() => undefined);
-  // The file tree beside the editor: kept open, or tucked away until the pointer is on its edge.
-  const [treePinned, setTreePinned] = useState(() => localStorage.getItem(TREE_KEY) !== '0');
   const markSlot = useRef<Compartment | null>(null);
   const [made, setMade] = useState(0);
   const marks = path ? marksIn(codeKey(path)) : [];
@@ -204,9 +206,15 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
     void listRoot(root).then(setFiles, (e) => setStatus(`The folder could not be read: ${e instanceof Error ? e.message : String(e)}`));
   }, [root]);
 
-  const open = (file: WorkspaceFile) => {
+  const ws = useWorkspace();
+  /** Opens another file from this one: beside it, as its branch, or below it, as its sibling with this one kept in view. */
+  const open = (file: WorkspaceFile, where: 'beside' | 'below') => {
     setFinding(false);
-    if (file.path !== path) void putNode({ ...node, code: { root, file: file.path } });
+    const parentId = where === 'beside' ? node.id : node.parentId ?? node.id;
+    const there = [...ws.idx.byId.values()].find((n) => n.parentId === parentId && n.code?.file === file.path);
+    if (where === 'below' && node.parentId && !ws.view.pinned.includes(node.id)) ws.togglePin(node.id);
+    if (there) return ws.select(there.id, { focus: true });
+    void ws.attach(parentId, { title: file.name.split('/').pop() ?? file.name, code: { root, file: file.path } });
   };
 
   // The editor is rebuilt for each file; the keys choice is part of it.
@@ -356,18 +364,6 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
       }}
     >
       <div className="code-bar">
-        <button
-          type="button"
-          className="btn"
-          aria-pressed={treePinned}
-          title={treePinned ? 'Tuck the file list away until the pointer is on its edge' : 'Keep the file list open'}
-          onClick={() => {
-            setTreePinned(!treePinned);
-            localStorage.setItem(TREE_KEY, treePinned ? '0' : '1');
-          }}
-        >
-          Files
-        </button>
         <button type="button" className="btn code-file" title="Go to file (Cmd+P or Ctrl+P)" onClick={() => setFinding(true)}>
           {shown || 'Go to file…'}
           {dirty && <span className="dot" aria-label="unsaved changes" />}
@@ -387,17 +383,10 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
         </label>
       </div>
       <div className="code-main">
-      {files && (
-        <div className={`code-tree${treePinned ? '' : ' auto'}`}>
-          <div className="code-tree-panel">
-            <FileTree files={files} current={path} onPick={open} />
-          </div>
-        </div>
-      )}
       <div className="code-pane">
       {!path && (
         <p className="hint">
-          {files ? `${files.length} files in ${root}. ` : ''}Choose a file from the list, or press Cmd+P (Ctrl+P) with the pointer in this panel.
+          {files ? `${files.length} files in ${root}. ` : ''}Press Cmd+P (Ctrl+P) with the pointer in this panel.
         </p>
       )}
       {image && <div className="code-image"><img src={image} alt={shown} /></div>}
@@ -421,6 +410,38 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
       </div>
       </div>
       {finding && files && <Palette files={files} onPick={open} onClose={() => setFinding(false)} />}
+    </div>
+  );
+}
+
+/**
+ * The first column of a code session: the repository's files as a folding tree.
+ * Choosing a file opens it in the next column, as a panel of its own.
+ */
+export function CodeFolder({ node }: { node: TreeNode }) {
+  const ws = useWorkspace();
+  const root = node.code!.root;
+  const [files, setFiles] = useState<WorkspaceFile[] | null>(null);
+  const [status, setStatus] = useState('');
+  useEffect(() => {
+    if (!root) return;
+    const read = () => void listRoot(root).then(setFiles, (e) => setStatus(`The folder could not be read: ${e instanceof Error ? e.message : String(e)}`));
+    read();
+    // A command or the model may have added or removed files.
+    window.addEventListener(FILES_CHANGED, read);
+    return () => window.removeEventListener(FILES_CHANGED, read);
+  }, [root]);
+  // The file shown in the next column is marked in the list.
+  const shown = ws.trail[1]?.parentId === node.id ? ws.trail[1].code?.file : undefined;
+  const open = (file: WorkspaceFile) => {
+    const there = [...ws.idx.byId.values()].find((n) => n.parentId === node.id && n.code?.file === file.path);
+    if (there) return ws.select(there.id, { focus: true });
+    void ws.attach(node.id, { title: file.name.split('/').pop() ?? file.name, code: { root, file: file.path } });
+  };
+  return (
+    <div className="code-folder">
+      {status && <p className="hint">{status}</p>}
+      {files ? <FileTree files={files} current={shown} onPick={open} /> : !status && <p className="hint">Reading the folder…</p>}
     </div>
   );
 }

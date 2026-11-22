@@ -5,7 +5,7 @@ import { kindLabel, pathFrom, preview, summarize } from '../tree';
 import { MAX_PINNED, freshNotes, useWorkspace } from '../workspace';
 import { Composer } from './Composer';
 import { LiveTerminal } from './LiveTerminal';
-import { CodeView } from './CodeView';
+import { CodeFolder, CodeView } from './CodeView';
 import { WebView } from './WebView';
 import { IconButton } from './Icon';
 import { MessageBody } from './MessageBody';
@@ -390,7 +390,7 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
       {node.doc && <div className="find-slot" ref={setFindSlot} />}
       <div className={`pane-body${liveShell || node.code ? ' with-shell' : ''}`}>
       {liveShell && <LiveTerminal node={node} />}
-      {node.code && <CodeView node={node} marksIn={marksIn} onOpen={openMark} onHighlight={openHighlight} onHover={hoverHighlight} />}
+      {node.code && (node.parentId ? <CodeView node={node} marksIn={marksIn} onOpen={openMark} onHighlight={openHighlight} onHover={hoverHighlight} /> : <CodeFolder node={node} />)}
       <div className="pane-scroll" ref={scroller}>
         {home && node.parentId && (
           <div className="origin">

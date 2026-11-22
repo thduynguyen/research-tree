@@ -61,6 +61,8 @@ export interface Workspace {
    */
   select(nodeId: string, opts?: { focus?: boolean; follow?: boolean }): void;
   togglePin(nodeId: string): void;
+  /** Adds a panel under `parentId` that is not tied to a passage (a file of code, say), opens it, and gives its id. */
+  attach(parentId: string, fields: Pick<TreeNode, 'title' | 'code'>): Promise<string>;
   /** Locks or unlocks one panel's scroll position (see View.locked). */
   toggleLock(nodeId: string): void;
   toggleMinimized(nodeId: string): void;

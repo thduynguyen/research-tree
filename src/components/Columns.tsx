@@ -279,7 +279,12 @@ interface StripProps {
  * focused place to the parent place it narrows smoothly from one width to the
  * other. An invisible track of snap stops gives the scroller its length.
  */
-function Strip({ depths, keyOf, render, share, onShare }: StripProps) {
+function Strip({ depths, keyOf, render, share: wanted, onShare }: StripProps) {
+  // The smaller share is the parent's; it never reaches half, so the column in use is always the larger.
+  const share = Math.min(wanted, 0.45);
+  // The column the reader last pressed in. When it is the left one of the two on screen, the sizes swap.
+  const active = useRef<number | null>(null);
+  const shownLead = useRef(-1);
   const scroller = useRef<HTMLDivElement>(null);
   const cells = useRef<(HTMLDivElement | null)[]>([]);
   const [width, setWidth] = useState(0);
@@ -309,11 +314,41 @@ function Strip({ depths, keyOf, render, share, onShare }: StripProps) {
       cell.style.visibility = left < width - 1 && left + w > 1 ? 'visible' : 'hidden';
       x += w;
     }
+    // At rest with the left (parent) column in use, the two columns on screen trade sizes.
+    const lead = Math.round(offset / step);
+    if (lead !== shownLead.current) {
+      shownLead.current = lead;
+      active.current = null;
+    }
+    const first = cells.current[lead];
+    const second = cells.current[lead + 1];
+    if (!single && first && second && active.current === lead && Math.abs(offset - lead * step) < 2) {
+      first.style.width = `${width * (1 - share)}px`;
+      first.style.transform = 'translateX(0px)';
+      second.style.width = `${width * share}px`;
+      second.style.transform = `translateX(${width * (1 - share)}px)`;
+    }
     const left = offset > 4;
     const right = offset < (stops - 1) * step - 4;
     setMore((cur) => (cur.left === left && cur.right === right ? cur : { left, right }));
   };
   useLayoutEffect(layout);
+  const use = (i: number) => {
+    if (active.current === i) return;
+    active.current = i;
+    layout();
+  };
+  // A page shown in a frame cannot be seen being pressed; it says so itself.
+  useEffect(() => {
+    const el = scroller.current;
+    const told = (e: Event) => {
+      const cell = (e.target as Element).closest<HTMLElement>('.cell');
+      if (cell?.dataset.index) use(Number(cell.dataset.index));
+    };
+    el?.addEventListener('rt-activate', told);
+    return () => el?.removeEventListener('rt-activate', told);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [width, share, count]);
 
   useEffect(() => {
     const el = scroller.current;
@@ -328,7 +363,7 @@ function Strip({ depths, keyOf, render, share, onShare }: StripProps) {
   const dragShare = (e: React.PointerEvent) => {
     e.preventDefault();
     const box = scroller.current!.getBoundingClientRect();
-    const move = (ev: PointerEvent) => onShare(Math.min(0.6, Math.max(0.2, (ev.clientX - box.left) / box.width)));
+    const move = (ev: PointerEvent) => onShare(Math.min(0.45, Math.max(0.2, (ev.clientX - box.left) / box.width)));
     const end = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
@@ -344,7 +379,15 @@ function Strip({ depths, keyOf, render, share, onShare }: StripProps) {
       <div className="columns" ref={scroller} onScroll={layout}>
         <div className="view" style={{ width }}>
           {depths.map((depth, i) => (
-            <div className="cell" key={keyOf(depth)} data-index={i} ref={(el) => { cells.current[i] = el; }}>
+            <div
+              className="cell"
+              key={keyOf(depth)}
+              data-index={i}
+              ref={(el) => {
+                cells.current[i] = el;
+              }}
+              onPointerDownCapture={() => use(i)}
+            >
               {render(depth)}
             </div>
           ))}
@@ -484,9 +527,10 @@ export function Columns() {
   const rootShown = rootPinned || rootPeek;
   // A PDF needs room to be read: its root column starts at 60% of the width, and keeps its own size.
   // Something to read (a PDF, a web page, code) gets the wider share by default; a conversation does not.
-  const reading = !!(root.doc || root.web || root.code);
-  const rootKey = reading ? 'pdfRoot' : '0';
-  const rootWidth: number | string | undefined = widths[rootKey] ?? (reading ? '60vw' : undefined);
+  const reading = !!(root.doc || root.web);
+  // A code session's first column is only its list of files, so it is narrow.
+  const rootKey = root.code ? 'codeRoot' : reading ? 'pdfRoot' : '0';
+  const rootWidth: number | string | undefined = widths[rootKey] ?? (root.code ? 280 : reading ? '60vw' : undefined);
 
   return (
     <div className="stage" ref={stage}>

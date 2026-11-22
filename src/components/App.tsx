@@ -265,6 +265,15 @@ export function App() {
           const choice = onLine && neighbour ? { ...cur.choice, [parentId]: neighbour.id } : cur.choice;
           return { ...cur, choice, pinned: [...cur.pinned, nodeId] };
         }),
+      async attach(parentId, fields) {
+        const t = Date.now();
+        const node: TreeNode = { id: uid(), parentId, ...fields, createdAt: t, updatedAt: t };
+        await putNode(node);
+        const ids = [...idsTo(parentId), node.id];
+        setView((cur) => choosePath(cur, ids));
+        ask(node.id);
+        return node.id;
+      },
       async branch(nodeId, messageId, start, end, quote, extra) {
         const t = Date.now();
         const node: TreeNode = {
