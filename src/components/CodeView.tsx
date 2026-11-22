@@ -6,7 +6,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { Decoration, EditorView, keymap } from '@codemirror/view';
 import { Vim, vim } from '@replit/codemirror-vim';
 import { basicSetup } from 'codemirror';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { FILES_CHANGED } from '../chat';
 import { putNode } from '../db';
 import { listRoot, readWorkspaceFile, saveWorkspaceFile, type WorkspaceFile } from '../folder';
@@ -80,13 +80,36 @@ function Palette({ files, onPick, onClose }: { files: WorkspaceFile[]; onPick: (
   );
 }
 
+// Files with edits not yet saved, by their place in the workspace, so the file list can mark them.
+const unsaved = new Set<string>();
+const unsavedWatchers = new Set<() => void>();
+let unsavedVersion = 0;
+function setUnsaved(path: string, on: boolean) {
+  if (unsaved.has(path) === on) return;
+  if (on) unsaved.add(path);
+  else unsaved.delete(path);
+  unsavedVersion++;
+  unsavedWatchers.forEach((tell) => tell());
+}
+function useUnsaved() {
+  useSyncExternalStore(
+    (tell) => {
+      unsavedWatchers.add(tell);
+      return () => unsavedWatchers.delete(tell);
+    },
+    () => unsavedVersion,
+  );
+  return unsaved;
+}
+
 interface Dir {
   dirs: Map<string, Dir>;
   files: WorkspaceFile[];
 }
 
 /** The folder's files as a tree that folds: folders first, then files, each by name. */
-function FileTree({ files, current, onPick }: { files: WorkspaceFile[]; current?: string; onPick: (file: WorkspaceFile) => void }) {
+function FileTree({ files, current, opened, onPick }: { files: WorkspaceFile[]; current?: string; opened: Set<string>; onPick: (file: WorkspaceFile) => void }) {
+  const edited = useUnsaved();
   const top = useMemo(() => {
     const made: Dir = { dirs: new Map(), files: [] };
     for (const file of files) {
@@ -138,8 +161,17 @@ function FileTree({ files, current, onPick }: { files: WorkspaceFile[]; current?
       {[...dir.files]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((file) => (
-          <button key={file.path} type="button" className={`code-row file${file.path === current ? ' on' : ''}`} style={{ paddingLeft: 8 + depth * 12 + 14 }} onClick={() => onPick(file)}>
+          <button
+            key={file.path}
+            type="button"
+            // As editors do: a file that is open is bold, and one with unsaved edits is italic with a dot.
+            className={`code-row file${file.path === current ? ' on' : ''}${opened.has(file.path) ? ' open' : ''}${edited.has(file.path) ? ' edited' : ''}`}
+            style={{ paddingLeft: 8 + depth * 12 + 14 }}
+            title={edited.has(file.path) ? 'Open, with unsaved changes' : opened.has(file.path) ? 'Open: click to bring its panel into view' : undefined}
+            onClick={() => onPick(file)}
+          >
             {file.name.slice(prefix.length)}
+            {edited.has(file.path) && <span className="code-dot" aria-label="unsaved changes"> ●</span>}
           </button>
         ))}
     </>
@@ -195,6 +227,8 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
   const [image, setImage] = useState('');
   const [vimOn, setVimOn] = useState(() => localStorage.getItem(VIM_KEY) === '1');
   const save = useRef<() => void>(() => undefined);
+  // The file's text as it is on disk, to tell whether the editor differs from it.
+  const onDisk = useRef('');
   const markSlot = useRef<Compartment | null>(null);
   const [made, setMade] = useState(0);
   const marks = path ? marksIn(codeKey(path)) : [];
@@ -242,6 +276,7 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
         if (bytes.byteLength > 3_000_000) return setStatus('This file is too large to show.');
         if (new Uint8Array(bytes.slice(0, 4000)).includes(0)) return setStatus('This is not a text file.');
         const text = new TextDecoder().decode(bytes);
+        onDisk.current = text;
         const language = new Compartment();
         const slot = new Compartment();
         markSlot.current = slot;
@@ -250,9 +285,11 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
         save.current = () => {
           if (!made) return;
           setStatus('Saving…');
-          saveWorkspaceFile(path, made.state.doc.toString()).then(
+          const saving = made.state.doc.toString();
+          saveWorkspaceFile(path, saving).then(
             () => {
-              setDirty(false);
+              onDisk.current = saving;
+              setDirty(made ? made.state.doc.toString() !== saving : false);
               setStatus('Saved.');
             },
             (e) => setStatus(`Not saved: ${e instanceof Error ? e.message : String(e)}`),
@@ -272,7 +309,8 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
               ...(dark ? [oneDark] : []),
               EditorView.updateListener.of((update) => {
                 if (update.docChanged) {
-                  setDirty(true);
+                  // Unsaved means different from the file on disk: undoing back to it clears the mark.
+                  setDirty(update.state.doc.toString() !== onDisk.current);
                   setStatus('');
                 }
                 // A selection is offered to the popover as a place in this file's text.
@@ -322,6 +360,13 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
     };
   }, [path, vimOn]);
 
+  // The file list marks a file that has unsaved edits.
+  useEffect(() => {
+    if (!path) return;
+    setUnsaved(path, dirty);
+    return () => setUnsaved(path, false);
+  }, [path, dirty]);
+
   // A command or a model may have changed the open file on disk: it is read again, unless there are unsaved edits here.
   const dirtyNow = useRef(dirty);
   dirtyNow.current = dirty;
@@ -332,6 +377,7 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
       try {
         const text = new TextDecoder().decode(await readWorkspaceFile(path));
         if (view.current !== editor || text === editor.state.doc.toString()) return;
+        onDisk.current = text;
         editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: text } });
         setDirty(false);
         setStatus('Reloaded: the file changed on disk.');
@@ -434,17 +480,27 @@ export function CodeFolder({ node }: { node: TreeNode }) {
     window.addEventListener(FILES_CHANGED, read);
     return () => window.removeEventListener(FILES_CHANGED, read);
   }, [root]);
-  // The file shown in the next column is marked in the list.
-  const shown = ws.trail[1]?.parentId === node.id ? ws.trail[1].code?.file : undefined;
+  // Every file that has a panel in this session, wherever in the tree, and the ones on the line being looked at.
+  const panels = [...ws.idx.byId.values()].filter((n) => n.code?.file && n.parentId && ws.idx.byId.has(n.parentId));
+  const inSession = (n: TreeNode) => {
+    let cur: TreeNode | undefined = n;
+    while (cur?.parentId) cur = ws.idx.byId.get(cur.parentId);
+    return cur?.id === node.id;
+  };
+  const mine = panels.filter(inSession);
+  const opened = new Set(mine.map((n) => n.code!.file!));
+  const onLine = ws.trail.filter((n) => n.code?.file);
+  const shown = onLine[onLine.length - 1]?.code?.file;
   const open = (file: WorkspaceFile) => {
-    const there = [...ws.idx.byId.values()].find((n) => n.parentId === node.id && n.code?.file === file.path);
+    // A file already open is brought into view: the panel on the line being looked at if there is one, else the first made.
+    const there = onLine.find((n) => n.code?.file === file.path) ?? mine.find((n) => n.code?.file === file.path);
     if (there) return ws.select(there.id, { focus: true });
     void ws.attach(node.id, { title: file.name.split('/').pop() ?? file.name, code: { root, file: file.path } });
   };
   return (
     <div className="code-folder">
       {status && <p className="hint">{status}</p>}
-      {files ? <FileTree files={files} current={shown} onPick={open} /> : !status && <p className="hint">Reading the folder…</p>}
+      {files ? <FileTree files={files} current={shown} opened={opened} onPick={open} /> : !status && <p className="hint">Reading the folder…</p>}
     </div>
   );
 }

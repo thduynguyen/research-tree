@@ -283,7 +283,10 @@ h2, h3 { margin: 0; }
 .code-tree-list { padding: 6px 0; font-size: 12.5px; }
 .code-row { display: block; width: 100%; min-height: 24px; padding: 2px 8px; border: 0; background: none; color: inherit; font: inherit; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .code-row:hover { background: var(--line); }
-.code-row.on { background: var(--line); font-weight: 600; }
+.code-row.on { background: var(--line); }
+.code-row.open { font-weight: 700; }
+.code-row.edited { font-style: italic; }
+.code-dot { font-style: normal; }
 .code-twisty { display: inline-block; width: 14px; color: var(--muted); }
 .code-host mark { color: inherit; border-radius: 2px; cursor: pointer; }
 .code-host mark.active { box-shadow: 0 0 0 2px var(--accent); }
