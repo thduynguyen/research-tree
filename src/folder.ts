@@ -24,7 +24,7 @@ const folderName = (name: string) => name.replace(/[^\p{L}\p{N} ._-]/gu, '-').re
 /** The folder a session's files live in. */
 export function sessionFolder(session: Session, dump: DbDump): string {
   const project = dump.projects?.find((p) => p.id === session.projectId && !p.deleted);
-  return `${(project && folderName(project.name)) || 'Inbox'}/${slug(session.title)}-${session.id.slice(0, 8)}`;
+  return `${(project && folderName(project.name)) || 'Inbox'}/${session.folder ?? `${slug(session.title)}-${session.id.slice(0, 8)}`}`;
 }
 
 /** Splits the database into files: one pair per live session, and an index for everything else. */
@@ -111,6 +111,41 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
 /** Whether the connected local server offers a folder to keep records in. */
 export const hasFolder = () => !!getSettings().custom?.folder;
 
+/**
+ * Folders made in the workspace by other means (a clone, a download, by hand) become part of the
+ * app: a new folder at the top is a project, and a new folder inside a project is a session on that
+ * folder, showing its files. Returns the database with them added.
+ */
+async function adoptFolders(dump: DbDump): Promise<DbDump> {
+  let found: Record<string, { name: string; session: boolean }[]>;
+  try {
+    found = (await call<{ folders: typeof found }>('folders')).folders;
+  } catch {
+    return dump; // an older server: nothing to adopt
+  }
+  const t = Date.now();
+  const added: DbDump = { version: 1, projects: [], sessions: [], nodes: [], messages: [], highlights: [] };
+  const live = dump.sessions.filter((s) => !s.deleted);
+  for (const [top, subs] of Object.entries(found)) {
+    let project = (dump.projects ?? []).find((p) => !p.deleted && folderName(p.name) === top);
+    if (!project && top !== 'Inbox') {
+      project = { id: crypto.randomUUID(), name: top, createdAt: t, updatedAt: t };
+      added.projects!.push(project);
+    }
+    for (const sub of subs) {
+      // A folder the app already keeps a session in, or is about to write one into, is not new.
+      if (sub.session || live.some((s) => sessionFolder(s, dump) === `${top}/${sub.name}`)) continue;
+      const root: TreeNode = { id: crypto.randomUUID(), parentId: null, title: sub.name, code: { root: `${top}/${sub.name}` }, createdAt: t, updatedAt: t };
+      added.nodes.push(root);
+      added.sessions.push({ id: crypto.randomUUID(), title: sub.name, folder: sub.name, rootNodeId: root.id, projectId: project?.id, createdAt: t, updatedAt: t });
+    }
+  }
+  if (!added.sessions.length && !added.projects!.length) return dump;
+  const merged = mergeDumps(dump, added);
+  await loadDump(merged);
+  return merged;
+}
+
 let running: Promise<void> | null = null;
 
 /**
@@ -126,7 +161,8 @@ export function syncFolder(): Promise<void> {
       const local = await dumpDb();
       const merged = remote ? mergeDumps(local, remote) : local;
       if (remote) await loadDump(merged);
-      const files = folderFiles(merged);
+      const adopted = await adoptFolders(merged);
+      const files = folderFiles(adopted);
       // A session that was renamed, moved or deleted leaves its old files behind; they are removed.
       const remove = Object.keys(found)
         .flatMap((path) => (path.endsWith('/session.json') ? [path, path.replace(/json$/, 'md')] : []))

@@ -391,3 +391,14 @@ describe('showing a change', () => {
     expect(out.filter((l) => l.text === '…')).toHaveLength(2);
   });
 });
+
+import { sessionFolder } from './folder';
+
+describe('a session made for an existing folder', () => {
+  it('keeps that folder, whatever its title becomes', () => {
+    const at = { createdAt: 1, updatedAt: 1 };
+    const dump = { version: 1, projects: [{ id: 'p', name: 'Vision', ...at }], sessions: [], nodes: [], messages: [] } as DbDump;
+    expect(sessionFolder({ id: 'abcdefgh-1', title: 'Renamed later', folder: 'my-repo', rootNodeId: 'n', projectId: 'p', ...at }, dump)).toBe('Vision/my-repo');
+    expect(sessionFolder({ id: 'abcdefgh-1', title: 'Plain', rootNodeId: 'n', ...at }, dump)).toBe('Inbox/plain-abcdefgh');
+  });
+});

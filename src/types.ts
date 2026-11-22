@@ -23,6 +23,11 @@ export interface Session {
   projectId?: string;
   /** Set when this session was made by re-rooting a pane of another session. */
   originSessionId?: string;
+  /**
+   * The name of the session's folder inside its project's, when the session was made for a folder
+   * that already existed in the workspace. Otherwise the folder is named from the title and id.
+   */
+  folder?: string;
   deleted?: boolean;
   createdAt: number;
   updatedAt: number;

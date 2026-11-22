@@ -18,6 +18,37 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   }
 });
 
+const URL_IN_TEXT = /https?:\/\/[^\s<>"'`\\]+/g;
+
+/**
+ * Makes addresses written out in the text into links. The text itself is not changed, only wrapped,
+ * so the places of marks in it stay the same. Formulas and existing links are left alone.
+ */
+export function linkify(el: HTMLElement) {
+  const doc = el.ownerDocument;
+  const walker = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const texts: Text[] = [];
+  for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+    if (n.data.includes('http') && !n.parentElement?.closest('a, .katex')) texts.push(n);
+  }
+  for (const text of texts) {
+    const found = [...text.data.matchAll(URL_IN_TEXT)].reverse();
+    for (const hit of found) {
+      // Punctuation that ends the sentence, or closes a bracket the address did not open, is not part of it.
+      let url = hit[0].replace(/[.,;:!?]+$/, '');
+      while (/[)\]}]$/.test(url) && (url.match(/[(\[{]/g) ?? []).length < (url.match(/[)\]}]/g) ?? []).length) url = url.slice(0, -1);
+      const mid = text.splitText(hit.index!);
+      mid.splitText(url.length);
+      const link = doc.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      mid.replaceWith(link);
+      link.appendChild(mid);
+    }
+  }
+}
+
 export interface Mark {
   id: string;
   start: number;
@@ -146,6 +177,7 @@ export function MessageBody({ nodeId, messageId, role, content, streaming, marks
   useLayoutEffect(() => {
     const el = ref.current!;
     el.innerHTML = html;
+    linkify(el);
     const all = el.textContent ?? '';
     for (const m of marks) {
       // A note can be edited after it was marked, so look the passage up again when it has moved.

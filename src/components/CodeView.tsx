@@ -3,7 +3,7 @@ import { LanguageDescription } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { Compartment, EditorState } from '@codemirror/state';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { Decoration, EditorView, keymap } from '@codemirror/view';
+import { Decoration, EditorView, MatchDecorator, ViewPlugin, keymap, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { Vim, vim } from '@replit/codemirror-vim';
 import { basicSetup } from 'codemirror';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -101,6 +101,34 @@ function useUnsaved() {
   );
   return unsaved;
 }
+
+// Addresses in code are underlined; Cmd (or Ctrl) and a click opens one, as in other editors.
+const linkMatcher = new MatchDecorator({
+  regexp: /https?:\/\/[^\s<>"'`\\)\]}]+/g,
+  decoration: (match) => Decoration.mark({ class: 'cm-url', attributes: { 'data-url': match[0].replace(/[.,;:!?]+$/, ''), title: 'Cmd+click (Ctrl+click) to open' } }),
+});
+const codeLinks = [
+  ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = linkMatcher.createDeco(view);
+      }
+      update(update: ViewUpdate) {
+        this.decorations = linkMatcher.updateDeco(update, this.decorations);
+      }
+    },
+    { decorations: (plugin) => plugin.decorations },
+  ),
+  EditorView.domEventHandlers({
+    mousedown(event) {
+      const url = (event.target as HTMLElement).closest<HTMLElement>('.cm-url')?.dataset.url;
+      if (!url || !(event.metaKey || event.ctrlKey)) return false;
+      window.open(url, '_blank', 'noopener');
+      return true;
+    },
+  }),
+];
 
 interface Dir {
   dirs: Map<string, Dir>;
@@ -305,6 +333,7 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
               basicSetup,
               keymap.of([indentWithTab, { key: 'Mod-s', preventDefault: true, run: () => (save.current(), true) }]),
               language.of([]),
+              codeLinks,
               slot.of(EditorView.decorations.of(decorate(text, latest.current.marks))),
               ...(dark ? [oneDark] : []),
               EditorView.updateListener.of((update) => {

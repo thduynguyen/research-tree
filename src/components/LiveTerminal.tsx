@@ -1,4 +1,5 @@
 import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef, useState } from 'react';
@@ -30,6 +31,8 @@ export function LiveTerminal({ node }: { node: TreeNode }) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Addresses printed in the terminal open in the browser when clicked.
+    term.loadAddon(new WebLinksAddon((_event, uri) => window.open(uri, '_blank', 'noopener')));
     term.open(el);
     const stop = new AbortController();
     let alive = true;

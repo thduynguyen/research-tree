@@ -288,6 +288,7 @@ h2, h3 { margin: 0; }
 .code-row.edited { font-style: italic; }
 .code-dot { font-style: normal; }
 .code-twisty { display: inline-block; width: 14px; color: var(--muted); }
+.code-host .cm-url { text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 2px; }
 .code-host mark { color: inherit; border-radius: 2px; cursor: pointer; }
 .code-host mark.active { box-shadow: 0 0 0 2px var(--accent); }
 .code-host mark.detached { background: none; border-bottom: 2px dashed var(--accent); border-radius: 0; }
