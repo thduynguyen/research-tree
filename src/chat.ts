@@ -11,6 +11,8 @@ interface LiveReply {
   nodeId: string;
   text: string;
   approval?: Approval;
+  /** What the model is doing while no text is coming. */
+  status?: string;
   /** Steps the user has said need no more asking, for the rest of this reply. */
   allowAll?: boolean;
   allowFiles?: Set<string>;
@@ -185,7 +187,12 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
         entry.approval = approval;
         notify();
       },
+      onStatus: (status) => {
+        entry.status = status;
+        notify();
+      },
       onText: (delta) => {
+        entry.status = undefined;
         entry.text += delta;
         notify();
       },

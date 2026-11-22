@@ -26,6 +26,8 @@ export interface StreamRequest {
   turns: ChatTurn[];
   /** Extra fields for the request body, for servers that understand them. */
   extra?: Record<string, unknown>;
+  /** What the model is doing while no text is coming, when the server says. */
+  onStatus?: (status: string) => void;
   /** A step the server wants the user's yes or no on before it goes ahead. */
   onApproval?: (approval: Approval) => void;
   signal: AbortSignal;

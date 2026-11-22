@@ -513,7 +513,7 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
                   return true;
                 }}
               />
-              {streaming && !content && <div className="hint">Waiting for the model…</div>}
+              {streaming && (live.get(m.id)?.status || !content) && <div className="hint" role="status">{live.get(m.id)?.status ?? 'Waiting for the model…'}</div>}
               {m.error && <div className="error" role="alert">{m.error}</div>}
               {/* Off the chosen line, the next column is not this pane's, so list its branches here. */}
               {!onTrail &&
