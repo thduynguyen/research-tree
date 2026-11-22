@@ -66,15 +66,15 @@ function Palette({ files, onPick, onClose }: { files: WorkspaceFile[]; onPick: (
                   <strong>{file.name.slice(cut)}</strong>
                   <span>{file.name.slice(0, cut)}</span>
                 </button>
-                <button type="button" className="below" title="Open below this file, in the same column" onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(file, 'below')}>
-                  below
+                <button type="button" className="below" title="Open in the same column as this file, pinned next to it" onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(file, 'below')}>
+                  same column
                 </button>
               </li>
             );
           })}
           {!found.length && <li className="hint">No file matches.</li>}
         </ul>
-        <div className="palette-foot">Enter opens beside this file · Shift+Enter opens below it</div>
+        <div className="palette-foot">Enter opens beside this file · Shift+Enter opens in the same column</div>
       </div>
     </div>
   );
@@ -212,9 +212,12 @@ export function CodeView({ node, marksIn, onOpen, onHighlight, onHover }: Props)
     setFinding(false);
     const parentId = where === 'beside' ? node.id : node.parentId ?? node.id;
     const there = [...ws.idx.byId.values()].find((n) => n.parentId === parentId && n.code?.file === file.path);
-    if (where === 'below' && node.parentId && !ws.view.pinned.includes(node.id)) ws.togglePin(node.id);
-    if (there) return ws.select(there.id, { focus: true });
-    void ws.attach(parentId, { title: file.name.split('/').pop() ?? file.name, code: { root, file: file.path } });
+    const fields = { title: file.name.split('/').pop() ?? file.name, code: { root, file: file.path } };
+    if (where === 'beside') return there ? ws.select(there.id, { focus: true }) : void ws.attach(parentId, fields);
+    // In the same column the new file is pinned next to this one, which stays the one the next column
+    // belongs to: whatever is open beside this file stays open.
+    if (!there) return void ws.attach(parentId, fields, { aside: true });
+    if (there.id !== node.id && !ws.view.pinned.includes(there.id)) ws.togglePin(there.id);
   };
 
   // The editor is rebuilt for each file; the keys choice is part of it.

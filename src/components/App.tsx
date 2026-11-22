@@ -265,10 +265,20 @@ export function App() {
           const choice = onLine && neighbour ? { ...cur.choice, [parentId]: neighbour.id } : cur.choice;
           return { ...cur, choice, pinned: [...cur.pinned, nodeId] };
         }),
-      async attach(parentId, fields) {
+      async attach(parentId, fields, opts) {
         const t = Date.now();
         const node: TreeNode = { id: uid(), parentId, ...fields, createdAt: t, updatedAt: t };
         await putNode(node);
+        if (opts?.aside) {
+          // Pinned beside its siblings; the oldest pin among them gives way when there is no room.
+          const siblings = (idx.childrenOf.get(parentId) ?? []).map((n) => n.id);
+          setView((cur) => {
+            const held = cur.pinned.filter((id) => siblings.includes(id));
+            const drop = held.length >= MAX_PINNED ? held[0] : undefined;
+            return { ...cur, pinned: [...cur.pinned.filter((id) => id !== drop), node.id] };
+          });
+          return node.id;
+        }
         const ids = [...idsTo(parentId), node.id];
         setView((cur) => choosePath(cur, ids));
         ask(node.id);

@@ -155,6 +155,10 @@ function Level({ info, width }: { info: LevelInfo; width?: number }) {
                   // text goes to its passage. Typing a message or finishing a text selection
                   // is not a pick.
                   const busy = (e.target as Element).closest('.composer, textarea, input, select') || !document.getSelection()?.isCollapsed;
+                  // A file of code with nothing opened from it leaves the next column as it is: working in
+                  // one file must not close the file shown beside its neighbour.
+                  const besideOpen = !!info.selected && ws.levels.some((l) => l.parent.id === info.selected!.id);
+                  if (n.code && n.id !== info.selected?.id && besideOpen && !(ws.idx.childrenOf.get(n.id) ?? []).length) return;
                   if (n.id !== info.selected?.id || !busy) ws.select(n.id, { focus: false });
                 }}
               >
