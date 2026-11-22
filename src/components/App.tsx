@@ -226,7 +226,13 @@ export function App() {
       select(nodeId, opts) {
         const ids = idsTo(nodeId);
         if (!ids.length) return;
-        setView((cur) => choosePath(cur, ids));
+        // Selecting never takes a column away. A panel with branches of its own moves the line, so the
+        // columns to its right become its branches. A panel with none leaves the line where it is, when
+        // the line runs through a sibling that has columns open: those stay, and the panel is only shown.
+        const node = idx.byId.get(nodeId);
+        const through = trail.findIndex((n) => n.id !== nodeId && n.parentId === node?.parentId);
+        const stays = !!node?.parentId && !(idx.childrenOf.get(nodeId) ?? []).length && through >= 0 && through < trail.length - 1;
+        if (!stays) setView((cur) => choosePath(cur, ids));
         if (opts?.focus !== false) ask(nodeId);
         if (opts?.follow !== false) setPicked((p) => ({ id: nodeId, n: (p?.n ?? 0) + 1, at: Date.now() }));
       },

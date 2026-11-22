@@ -63,6 +63,8 @@ function Level({ info, width }: { info: LevelInfo; width?: number }) {
 
   // Panels are not all one height: a chat or a PDF fills the column, a note is
   // only as tall as its text, so several notes can be in view together.
+  // The request to show a panel that was last acted on, so each is acted on once.
+  const shownAsk = useRef(-1);
   const slotAt = (i: number) => snap.current?.children[i] as HTMLElement | undefined;
   const inView = (slot: HTMLElement) => {
     const el = snap.current!;
@@ -72,12 +74,17 @@ function Level({ info, width }: { info: LevelInfo; width?: number }) {
   // A selection made elsewhere (a highlight, the tree, the list): glide to it unless it is already in view.
   useEffect(() => {
     const el = snap.current;
-    const slot = slotAt(at);
+    // A panel asked for by name is the one to show, whether or not the line runs through it;
+    // asking again for one that was scrolled away brings it back.
+    const fresh = ws.focus && ws.focus.n !== shownAsk.current;
+    const asked = fresh ? browse.findIndex((n) => n.id === ws.focus!.id) : -1;
+    if (ws.focus) shownAsk.current = ws.focus.n;
+    const slot = slotAt(asked >= 0 ? asked : at);
     if (!el || !slot) return;
     if (!inView(slot)) el.scrollTo({ top: slot.offsetTop, behavior: first.current || calm() ? 'auto' : 'smooth' });
     first.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [at, browse.length]);
+  }, [at, browse.length, ws.focus?.n]);
 
   // Scrolling the column never changes what is selected. If it did, the columns
   // to the right would come and go as panels with and without open branches
@@ -155,10 +162,6 @@ function Level({ info, width }: { info: LevelInfo; width?: number }) {
                   // text goes to its passage. Typing a message or finishing a text selection
                   // is not a pick.
                   const busy = (e.target as Element).closest('.composer, textarea, input, select') || !document.getSelection()?.isCollapsed;
-                  // A file of code with nothing opened from it leaves the next column as it is: working in
-                  // one file must not close the file shown beside its neighbour.
-                  const besideOpen = !!info.selected && ws.levels.some((l) => l.parent.id === info.selected!.id);
-                  if (n.code && n.id !== info.selected?.id && besideOpen && !(ws.idx.childrenOf.get(n.id) ?? []).length) return;
                   if (n.id !== info.selected?.id || !busy) ws.select(n.id, { focus: false });
                 }}
               >
@@ -490,7 +493,7 @@ export function Columns() {
     if (!cell || !strip) return;
     const index = Number(cell.dataset.index);
     const single = strip.clientWidth < NARROW;
-    const left = single ? index * strip.clientWidth : Math.max(0, index - 1) * share * strip.clientWidth;
+    const left = single ? index * strip.clientWidth : Math.max(0, index - 1) * Math.min(share, 0.45) * strip.clientWidth;
     strip.scrollTo({ left, behavior: calm() ? 'auto' : 'smooth' });
   });
 
