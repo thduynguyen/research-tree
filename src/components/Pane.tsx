@@ -5,6 +5,7 @@ import { kindLabel, pathFrom, preview, summarize } from '../tree';
 import { MAX_PINNED, freshNotes, useWorkspace } from '../workspace';
 import { Composer } from './Composer';
 import { LiveTerminal } from './LiveTerminal';
+import { LiveWeb, isDesktop } from './LiveWeb';
 import { CodeFolder, CodeView } from './CodeView';
 import { WebView } from './WebView';
 import { IconButton } from './Icon';
@@ -103,6 +104,8 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
   const isTerminal = node.terminal !== undefined;
   const [logMode, setLogMode] = useState(false);
   const liveShell = isTerminal && !logMode;
+  // In the desktop app a web page is shown in a real browser.
+  const liveWeb = !!node.web && isDesktop;
   const mini = isChat && isBranch && ws.view.minimized.includes(nodeId);
   // A note opens ready to type in only where it was just created. Another tab
   // or device also sees the new, still empty note, and must not open an editor
@@ -388,7 +391,8 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
       </header>
 
       {node.doc && <div className="find-slot" ref={setFindSlot} />}
-      <div className={`pane-body${liveShell || node.code ? ' with-shell' : ''}`}>
+      <div className={`pane-body${liveShell || node.code || liveWeb ? ' with-shell' : ''}`}>
+      {liveWeb && <LiveWeb node={node} />}
       {liveShell && <LiveTerminal node={node} />}
       {node.code && (node.parentId ? <CodeView node={node} marksIn={marksIn} onOpen={openMark} onHighlight={openHighlight} onHover={hoverHighlight} /> : <CodeFolder node={node} />)}
       <div className="pane-scroll" ref={scroller}>
@@ -471,7 +475,7 @@ export function Pane({ nodeId, variant, style, headExtra }: PaneProps) {
           </button>
         )}
 
-        {node.web && <WebView node={node} marks={marksIn(WEB_KEY)} onOpen={openMark} onHighlight={openHighlight} onHover={hoverHighlight} />}
+        {node.web && !liveWeb && <WebView node={node} marks={marksIn(WEB_KEY)} onOpen={openMark} onHighlight={openHighlight} onHover={hoverHighlight} />}
 
         {!node.doc && !node.web && !isNote && !mini && messages.length === 0 && (
           <p className="hint">

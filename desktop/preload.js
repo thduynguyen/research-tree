@@ -1,1 +1,3 @@
-// Nothing is handed to the test page; the file exists so the window has an isolated preload.
+// Tells the interface that it is running in the desktop app, where a web panel is a real browser.
+const { contextBridge } = require('electron');
+contextBridge.exposeInMainWorld('researchTreeDesktop', { version: 1 });
