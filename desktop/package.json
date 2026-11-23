@@ -1,0 +1,14 @@
+{
+  "name": "research-tree-desktop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Research Tree as a desktop app. For now: a test of signing in to web agents inside an embedded browser.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^45.4.1"
+  }
+}
