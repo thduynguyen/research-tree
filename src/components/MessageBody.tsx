@@ -177,6 +177,12 @@ export function MessageBody({ nodeId, messageId, role, content, streaming, marks
   useLayoutEffect(() => {
     const el = ref.current!;
     el.innerHTML = html;
+    // While the reply is still coming, the thinking under way is shown open; once done it folds away.
+    if (streaming) {
+      const thinking = el.querySelectorAll<HTMLDetailsElement>('details.thinking');
+      const last = thinking[thinking.length - 1];
+      if (last && !last.nextElementSibling) last.open = true;
+    }
     linkify(el);
     const all = el.textContent ?? '';
     for (const m of marks) {
@@ -185,7 +191,7 @@ export function MessageBody({ nodeId, messageId, role, content, streaming, marks
       if (found) wrapRange(el, { ...m, start: found[0], end: found[1] });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html, marksKey]);
+  }, [html, marksKey, streaming]);
 
   const open = (target: EventTarget) => {
     const mark = (target as HTMLElement).closest<HTMLElement>('mark');

@@ -339,6 +339,14 @@ h2, h3 { margin: 0; }
 .file-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
 .file-list li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .file-list .link { text-align: left; overflow-wrap: anywhere; }
+/* The model's thinking and its steps, folded inside a reply. */
+.body details.thinking, .body details.step, .body div.step { margin: 6px 0; padding: 4px 10px; border-left: 2px solid var(--line); color: var(--muted); font-size: 13px; }
+.body details.thinking > summary, .body details.step > summary { cursor: pointer; list-style-position: outside; }
+.body details.thinking > summary { font-style: italic; }
+.body details.thinking[open], .body details.step[open] { background: rgba(127, 127, 127, 0.06); border-radius: 0 6px 6px 0; }
+.body details.step pre, .body details.thinking pre { max-height: 260px; overflow: auto; font-size: 12px; }
+.body .step.nested { margin-left: 18px; }
+.body .step code { font-size: 12px; }
 /* While the model works: a light going round the message box, and a line saying so. */
 @property --turn { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
 .composer.working { position: relative; }
