@@ -46,7 +46,8 @@ app.whenReady().then(async () => {
     width: 1600,
     height: 1000,
     title: 'Research Tree',
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), webviewTag: true, contextIsolation: true },
+    // Kept running at full speed when covered by another window: replies and terminals carry on.
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), webviewTag: true, contextIsolation: true, backgroundThrottling: false },
   });
   if (await startHelper()) win.loadURL(APP_URL);
   else win.loadFile('missing.html');

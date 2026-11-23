@@ -9,6 +9,7 @@ import { buildIndex, pathFrom, shorten } from '../tree';
 import type { TreeNode } from '../types';
 import { MAX_PINNED, WorkspaceCtx, freshNotes, choosePath, resolveView, type View, type Workspace } from '../workspace';
 import { Columns } from './Columns';
+import { isDesktop } from './LiveWeb';
 import { OpenCode } from './OpenCode';
 import { OpenPdf } from './OpenPdf';
 import { Handle } from './Handle';
@@ -40,9 +41,11 @@ function saveLocal(key: string, value: unknown) {
 
 /** Whether this tab is the one on screen. */
 function usePageShown(): boolean {
-  const [shown, setShown] = useState(() => document.visibilityState === 'visible');
+  // The desktop app has one window and no other tab to make way for, so it never pauses.
+  const seen = () => isDesktop || document.visibilityState === 'visible';
+  const [shown, setShown] = useState(seen);
   useEffect(() => {
-    const update = () => setShown(document.visibilityState === 'visible');
+    const update = () => setShown(seen());
     document.addEventListener('visibilitychange', update);
     return () => document.removeEventListener('visibilitychange', update);
   }, []);

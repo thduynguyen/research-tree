@@ -326,6 +326,8 @@ h2, h3 { margin: 0; }
 .live-web { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .live-web-view { flex: 1; min-height: 0; display: flex; }
 .live-web-start { padding: 16px; }
+.live-web-away { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+.live-web-away .btn { min-height: 26px; padding: 0 8px; }
 /* A full terminal fills the panel's body; the panel's own scrolling area is put away meanwhile. */
 .pane-body.with-shell > .pane-scroll { display: none; }
 .live-terminal { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px 4px 4px 10px; }
