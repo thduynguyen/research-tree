@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { pageOf } from '../types';
 import { useWorkspace } from '../workspace';
+import { WEB_AGENTS, isDesktop, webAgent } from './LiveWeb';
 import { HIGHLIGHT_COLORS } from './PdfView';
 
 interface Target {
@@ -69,6 +70,7 @@ export function SelectionPopover() {
   const ws = useWorkspace();
   const [target, setTarget] = useState<Target | null>(null);
   const [color, setColor] = useState(() => localStorage.getItem(COLOR_KEY) ?? HIGHLIGHT_COLORS[0].value);
+  const agent = webAgent();
 
   useEffect(() => {
     let timer = 0;
@@ -133,6 +135,24 @@ export function SelectionPopover() {
       <button className="btn primary" onMouseDown={hold} onClick={() => run(() => ws.branch(nodeId, messageId, start, end, quote, { color }))}>
         Ask AI
       </button>
+      {isDesktop && (
+        <button
+          className="btn"
+          title={`Open ${WEB_AGENTS[agent].name} beside this, with the passage ready to ask about. Choose the agent in Settings.`}
+          onMouseDown={hold}
+          onClick={() =>
+            run(() => {
+              // The agent is told what the passage is from, and is left for the reader to add the question.
+              const from = ws.idx.byId.get(nodeId);
+              const source = from?.web?.url ?? from?.doc?.url ?? '';
+              const opening = `About this passage${from?.title ? ` from "${from.title}"` : ''}${source && /^https?:/.test(source) ? ` (${source})` : ''}:\n\n"${quote}"\n\n`;
+              return ws.branch(nodeId, messageId, start, end, quote, { color, web: { url: WEB_AGENTS[agent].url }, opening });
+            })
+          }
+        >
+          Ask {WEB_AGENTS[agent].name}
+        </button>
+      )}
     </div>
   );
 }

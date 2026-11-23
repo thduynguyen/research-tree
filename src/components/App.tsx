@@ -9,7 +9,7 @@ import { buildIndex, pathFrom, shorten } from '../tree';
 import type { TreeNode } from '../types';
 import { MAX_PINNED, WorkspaceCtx, freshNotes, choosePath, resolveView, type View, type Workspace } from '../workspace';
 import { Columns } from './Columns';
-import { isDesktop } from './LiveWeb';
+import { isDesktop, startWith } from './LiveWeb';
 import { OpenCode } from './OpenCode';
 import { OpenPdf } from './OpenPdf';
 import { Handle } from './Handle';
@@ -307,6 +307,7 @@ export function App() {
           updatedAt: t,
         };
         if (extra?.note) freshNotes.add(node.id);
+        if (extra?.opening) startWith(node.id, extra.opening);
         await putNode(node);
         const ids = [...idsTo(nodeId), node.id];
         setView((cur) => choosePath(cur, ids));

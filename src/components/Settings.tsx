@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { cleanUrl, serverExtras, keyedProviders, providers, type Provider } from '../providers';
 import { updateSettings, useSettings, type GithubConfig } from '../settings';
+import { WEB_AGENTS, isDesktop, setWebAgent, webAgent } from './LiveWeb';
 
 function ProviderCard({ provider }: { provider: Provider }) {
   const settings = useSettings();
@@ -163,6 +164,24 @@ export function Settings({ onClose, onPull, onPush, syncStatus }: Props) {
           may ask once for permission to reach your computer or local network.
         </p>
         <CustomCard />
+
+        {isDesktop && (
+          <>
+            <h3>Web agent</h3>
+            <p className="hint">
+              In the desktop app, a selection can be taken to an agent's own web page, opened beside it with the passage
+              ready to ask about. Sign in to the agent once, in any web panel.
+            </p>
+            <div className="card-static">
+              <div className="field-row">
+                <label htmlFor="web-agent"><strong>Ask on the web with</strong></label>
+                <select id="web-agent" defaultValue={webAgent()} onChange={(e) => setWebAgent(e.target.value)}>
+                  {Object.entries(WEB_AGENTS).map(([id, a]) => <option key={id} value={id}>{a.name}</option>)}
+                </select>
+              </div>
+            </div>
+          </>
+        )}
 
         <h3>Send pages from your browser</h3>
         <p className="hint">

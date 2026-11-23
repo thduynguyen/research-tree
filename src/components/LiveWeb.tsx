@@ -19,6 +19,8 @@ interface Browser extends HTMLElement {
   goForward(): void;
   reload(): void;
   executeJavaScript<T = unknown>(code: string): Promise<T>;
+  /** Types text at the cursor, as the keyboard would. */
+  insertText(text: string): Promise<void>;
 }
 
 /**
@@ -138,6 +140,37 @@ const FOLD_LIST = `(() => {
   go();
 })()`;
 
+/** The web agents a passage can be taken to. The passage is typed into the agent's box once its page is up. */
+export const WEB_AGENTS: Record<string, { name: string; url: string }> = {
+  claude: { name: 'Claude', url: 'https://claude.ai/new' },
+  chatgpt: { name: 'ChatGPT', url: 'https://chatgpt.com/' },
+  gemini: { name: 'Gemini', url: 'https://gemini.google.com/app' },
+};
+const AGENT_KEY = 'rt.webAgent';
+export const webAgent = () => {
+  const saved = localStorage.getItem(AGENT_KEY) ?? 'claude';
+  return saved in WEB_AGENTS ? saved : 'claude';
+};
+export const setWebAgent = (id: string) => localStorage.setItem(AGENT_KEY, id);
+
+// Text waiting to be put into an agent's box when its panel's page is up, by panel.
+const openingText = new Map<string, string>();
+/** Notes the text a new agent panel should start with. It is also put on the clipboard, in case the box cannot be filled. */
+export function startWith(nodeId: string, text: string) {
+  openingText.set(nodeId, text);
+  void navigator.clipboard?.writeText(text).catch(() => undefined);
+}
+/** Puts the cursor in the page's message box, if it is there and empty, and says whether it did. */
+const FOCUS_BOX = `(() => {
+  const seen = (el) => el.getBoundingClientRect().width > 20 && el.getBoundingClientRect().height > 10;
+  const box =
+    [...document.querySelectorAll('div.ProseMirror[contenteditable="true"], rich-textarea .ql-editor, div[contenteditable="true"][role="textbox"], div[contenteditable="true"]')].find(seen) ||
+    [...document.querySelectorAll('textarea')].find(seen);
+  if (!box || (box.value ?? box.innerText).trim()) return false;
+  box.focus();
+  return true;
+})()`;
+
 const STARTS = [
   ['Claude', 'https://claude.ai/'],
   ['ChatGPT', 'https://chatgpt.com/'],
@@ -215,6 +248,25 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
         .then(draw)
         .catch(() => undefined);
       if (AGENT_SITE.test(el.getURL())) void el.executeJavaScript(FOLD_LIST).catch(() => undefined);
+      // A panel opened to ask about a passage starts with the passage in the agent's box, ready for the question.
+      const opening = openingText.get(latest.current.id);
+      if (opening && AGENT_SITE.test(el.getURL())) {
+        openingText.delete(latest.current.id);
+        // The box appears a moment after the page: it is looked for until found, then typed into, not sent.
+        void (async () => {
+          for (let tries = 0; tries < 24; tries++) {
+            await new Promise((done) => setTimeout(done, 500));
+            try {
+              if (!(await el.executeJavaScript<boolean>(FOCUS_BOX))) continue;
+              el.focus();
+              await el.insertText(opening);
+              return;
+            } catch {
+              return; // the page went away
+            }
+          }
+        })();
+      }
     };
     // The page's text is kept for the model: a conversation about this page is given it.
     const keepText = async () => {
