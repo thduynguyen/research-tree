@@ -22,6 +22,7 @@ interface Browser extends HTMLElement {
   /** Types text at the cursor, as the keyboard would. */
   insertText(text: string): Promise<void>;
   insertCSS(css: string): Promise<string>;
+  setZoomFactor(factor: number): void;
   sendInputEvent(event: { type: 'keyDown' | 'keyUp' | 'char'; keyCode: string }): void;
 }
 
@@ -53,11 +54,34 @@ const IN_PAGE = `(() => {
   });
   const style = document.createElement('style');
   document.documentElement.appendChild(style);
+  // Where each branch's passage ends on screen, for the line the app draws from it to its panel.
+  let told = '';
+  const where = () => {
+    const list = rt.ranges.filter((m) => m.branch).map((m) => {
+      const boxes = m.range.getClientRects();
+      const box = boxes[boxes.length - 1] || m.range.getBoundingClientRect();
+      return { id: m.id, x: Math.round(box.left), y: Math.round(box.top), w: Math.round(box.width), h: Math.round(box.height) };
+    });
+    const now = JSON.stringify(list);
+    if (now === told) return;
+    told = now;
+    say('places', { list });
+  };
+  let moving;
+  const moved = () => {
+    cancelAnimationFrame(moving);
+    moving = requestAnimationFrame(where);
+  };
+  window.addEventListener('scroll', moved, true);
+  window.addEventListener('resize', moved);
   const paint = () => {
     if (!window.CSS || !CSS.highlights) return;
     for (const name of [...CSS.highlights.keys()]) if (name.startsWith('rt-')) CSS.highlights.delete(name);
     rt.ranges = [];
-    if (!rt.marks.length) return (style.textContent = '');
+    if (!rt.marks.length) {
+      style.textContent = '';
+      return where();
+    }
     const nodes = [];
     let all = '';
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -93,6 +117,7 @@ const IN_PAGE = `(() => {
       rt.ranges.push({ id: mark.id, branch: mark.branch, range });
     }
     style.textContent = css;
+    where();
   };
   rt.draw = (marks) => {
     rt.marks = marks;
@@ -164,10 +189,10 @@ export interface Attachment {
 }
 
 // What a new agent panel starts with, waiting for its page to be up, by panel.
-const opening = new Map<string, { text: string; file?: Attachment }>();
+const opening = new Map<string, { text: string; files: Attachment[] }>();
 /** Notes the message, and the file to go with it, that a new agent panel should send. */
-export function startWith(nodeId: string, text: string, file?: Attachment) {
-  opening.set(nodeId, { text, file });
+export function startWith(nodeId: string, text: string, files: Attachment[] = []) {
+  opening.set(nodeId, { text, files });
 }
 
 const base64 = (data: ArrayBuffer) => {
@@ -176,13 +201,15 @@ const base64 = (data: ArrayBuffer) => {
   for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(out);
 };
-/** Hands the page's message box a file, the way pasting one does. Says whether the page took the paste. */
-const pasteFile = (file: Attachment) => `(() => {
-  const raw = atob(${JSON.stringify(base64(file.data))});
-  const bytes = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+/** Hands the page's message box files, the way pasting them does. Says whether the page took the paste. */
+const pasteFiles = (files: Attachment[]) => `(() => {
   const carried = new DataTransfer();
-  carried.items.add(new File([bytes], ${JSON.stringify(file.name)}, { type: ${JSON.stringify(file.type)} }));
+  for (const [name, type, data] of ${JSON.stringify(files.map((f) => [f.name, f.type, base64(f.data)]))}) {
+    const raw = atob(data);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    carried.items.add(new File([bytes], name, { type }));
+  }
   const box = document.activeElement || document.body;
   return !box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: carried, bubbles: true, cancelable: true }));
 })()`;
@@ -259,6 +286,9 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
   // The marks belong to the page they were made on. With marks, the panel stays that page's even
   // when the browser moves on, and says so.
   const [away, setAway] = useState(false);
+  // Where the passages of this page's branches are, so that the lines to their panels have somewhere to start.
+  const [places, setPlaces] = useState<{ id: string; x: number; y: number; w: number; h: number }[]>([]);
+  const zoom = useRef(1);
   const gone = useRef(false);
   const pageReady = useRef(false);
   const kept = marks.filter((m) => !m.hidden);
@@ -299,6 +329,9 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
         .executeJavaScript(IN_PAGE)
         .then(draw)
         .catch(() => undefined);
+      // An agent's page is laid out for a full window; in a panel it reads better a little smaller.
+      zoom.current = AGENT_SITE.test(el.getURL()) ? 0.85 : 1;
+      el.setZoomFactor(zoom.current);
       if (AGENT_SITE.test(el.getURL())) {
         void el.executeJavaScript(FOLD_LIST).catch(() => undefined);
         void el.insertCSS(AGENT_LOOK).catch(() => undefined);
@@ -319,8 +352,8 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
               if (tries === 23) return;
             }
             el.focus();
-            if (begin.file) {
-              await el.executeJavaScript(pasteFile(begin.file));
+            if (begin.files.length) {
+              await el.executeJavaScript(pasteFiles(begin.files));
               await pause(2500);
               await el.executeJavaScript(FOCUS_BOX);
               el.focus();
@@ -364,15 +397,21 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
               start: said.start,
               end: said.end,
               quote: said.quote,
-              x: Math.min(Math.max(at.x + said.x, 200), window.innerWidth - 200),
-              y: Math.min(Math.max(at.y + said.y + 8, 60), window.innerHeight - 60),
+              x: Math.min(Math.max(at.x + said.x * zoom.current, 200), window.innerWidth - 200),
+              y: Math.min(Math.max(at.y + said.y * zoom.current + 8, 60), window.innerHeight - 60),
               clear: () => void el.executeJavaScript('getSelection().removeAllRanges()').catch(() => undefined),
             },
           }),
         );
       }
+      if (said.kind === 'places') {
+        const scale = zoom.current;
+        setPlaces(said.list.map((p: { id: string; x: number; y: number; w: number; h: number }) => ({ id: p.id, x: p.x * scale, y: p.y * scale, w: p.w * scale, h: p.h * scale })));
+        // The lines are redrawn when something scrolls; this counts as that.
+        requestAnimationFrame(() => el.dispatchEvent(new Event('scroll', { bubbles: true })));
+      }
       if (said.kind === 'mark') {
-        const box = new DOMRect(at.x + said.x, at.y + said.y, said.w, said.h);
+        const box = new DOMRect(at.x + said.x * zoom.current, at.y + said.y * zoom.current, said.w * zoom.current, said.h * zoom.current);
         if (said.branch) talk.current.onOpen(said.id, box);
         else talk.current.onHighlight(said.id, box);
       }
@@ -400,6 +439,9 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
       redraw((n) => n + 1);
       void keepText();
     };
+    // A press inside the page tells the columns that this panel is the one in use.
+    const used = () => el.dispatchEvent(new CustomEvent('rt-activate', { bubbles: true }));
+    el.addEventListener('focus', used);
     el.addEventListener('dom-ready', ready);
     el.addEventListener('console-message', heard);
     el.addEventListener('did-stop-loading', settled);
@@ -408,6 +450,7 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
     el.addEventListener('page-title-updated', named);
     return () => {
       el.removeEventListener('did-stop-loading', settled);
+      el.removeEventListener('focus', used);
       el.removeEventListener('dom-ready', ready);
       el.removeEventListener('console-message', heard);
       el.removeEventListener('did-navigate', moved);
@@ -457,8 +500,13 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
         </div>
       )}
       {begun ? (
-        // The browser's sign-ins are kept in a store of their own, shared by all web panels.
-        createElement('webview', { ref: view, className: 'live-web-view', src: first, partition: 'persist:web', allowpopups: 'true' })
+        <div className="live-web-stage">
+          {createElement('webview', { ref: view, className: 'live-web-view', src: first, partition: 'persist:web', allowpopups: 'true' })}
+          {/* Stand-ins for the passages inside the page, which the app cannot reach into: the lines to branch panels start from these. */}
+          {places.map((p) => (
+            <mark key={p.id} data-child={p.id} className="ghost" style={{ left: p.x, top: p.y, width: p.w, height: p.h }} />
+          ))}
+        </div>
       ) : (
         <div className="live-web-start">
           <p className="hint">Type an address or a search above, or start from one of these.</p>

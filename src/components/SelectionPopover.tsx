@@ -142,21 +142,30 @@ export function SelectionPopover() {
           run(async () => {
             // In the desktop app the passage goes to the chosen agent's own page, which is asked about it at once.
             if (!toWeb) return ws.branch(nodeId, messageId, start, end, quote, { color });
-            // The agent is given what the passage is from, whole: the PDF itself, or the page's text.
-            let source = ws.idx.byId.get(nodeId);
-            while (source && !source.doc && !source.web && source.parentId) source = ws.idx.byId.get(source.parentId);
-            const title = source?.doc?.title ?? source?.web?.title ?? source?.title ?? '';
-            const link = source?.web?.url ?? source?.doc?.url ?? '';
-            const kept = source?.doc?.fingerprint ? await db.files.get(source.doc.fingerprint) : source?.web?.url ? await db.files.get(`web:${source.web.url}`) : undefined;
-            const safe = (title || 'document').replace(/[^\p{L}\p{N} ._-]/gu, ' ').trim().slice(0, 60) || 'document';
-            const file = kept?.data?.byteLength
-              ? { name: `${safe}.pdf`, type: 'application/pdf', data: kept.data }
-              : kept?.text?.length
-                ? { name: `${safe}.txt`, type: 'text/plain', data: new TextEncoder().encode(`${title}\n${link}\n\n${kept.text.join('\n\n')}`).buffer as ArrayBuffer }
-                : undefined;
-            const about = `${title ? ` from "${title}"` : ''}${/^https?:/.test(link) ? ` (${link})` : ''}`;
-            const opening = `${file ? `The attached file is the ${file.type === 'application/pdf' ? 'paper' : 'page'} I am reading. ` : ''}Explain this passage${about}: "${quote.replace(/\s+/g, ' ')}"`;
-            return ws.branch(nodeId, messageId, start, end, quote, { color, web: { url: WEB_AGENTS[agent].url }, opening, file });
+            // The agent is given everything the passage sits under, whole: the paper or page being read,
+            // and each discussion on the way down to it. Nearest first in the list; at most three.
+            const files: { name: string; type: string; data: ArrayBuffer }[] = [];
+            const from = ws.idx.byId.get(nodeId);
+            let reading = '';
+            for (let cur = from; cur && files.length < 3; cur = cur.parentId ? ws.idx.byId.get(cur.parentId) : undefined) {
+              if (!cur.doc && !cur.web) continue;
+              const title = cur.doc?.title ?? cur.web?.title ?? cur.title ?? 'document';
+              const link = cur.web?.url ?? cur.doc?.url ?? '';
+              const kept = cur.doc?.fingerprint ? await db.files.get(cur.doc.fingerprint) : cur.web?.url ? await db.files.get(`web:${cur.web.url}`) : undefined;
+              const safe = title.replace(/[^\p{L}\p{N} ._-]/gu, ' ').trim().slice(0, 60) || 'document';
+              if (kept?.data?.byteLength) files.push({ name: `${safe}.pdf`, type: 'application/pdf', data: kept.data });
+              else if (kept?.text?.length) files.push({ name: `${safe}.txt`, type: 'text/plain', data: new TextEncoder().encode(`${title}\n${link}\n\n${kept.text.join('\n\n')}`).buffer as ArrayBuffer });
+              reading = title;
+            }
+            const here = from?.doc?.title ?? from?.web?.title ?? from?.title ?? '';
+            const attached =
+              files.length > 1
+                ? `The attached files are what I am reading ("${reading}") and the discussion that led here. `
+                : files.length
+                  ? `The attached file is what I am reading. `
+                  : '';
+            const opening = `${attached}Explain this passage${here ? ` from "${here}"` : ''}: "${quote.replace(/\s+/g, ' ')}"`;
+            return ws.branch(nodeId, messageId, start, end, quote, { color, web: { url: WEB_AGENTS[agent].url }, opening, files });
           })
         }
       >

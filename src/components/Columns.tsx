@@ -203,7 +203,9 @@ function Links({ stage }: { stage: RefObject<HTMLDivElement | null> }) {
         const from = host.querySelector(`[data-pane-id="${level.parent.id}"]`);
         const to = host.querySelector(`[data-pane-id="${level.selected.id}"]`);
         const marks = from?.querySelectorAll(`mark[data-child="${level.selected.id}"]`);
-        const view = from?.querySelector('.pane-scroll')?.getBoundingClientRect();
+        // A panel filled by a browser, a terminal or code has its scrolling area put away: its body is what shows.
+        const scroll = from?.querySelector('.pane-scroll')?.getBoundingClientRect();
+        const view = scroll && scroll.height > 0 ? scroll : from?.querySelector('.pane-body')?.getBoundingClientRect();
         if (!from || !to || !marks?.length || !view) continue;
         const parked = (el: Element) => el.closest<HTMLElement>('.cell')?.style.visibility === 'hidden';
         if (parked(from) || parked(to)) continue;
@@ -480,7 +482,7 @@ export function Columns() {
     const request = ws.focus;
     if (!request || handled.current === request.n) return;
     // Asking for the root while it is tucked away slides it out.
-    if (request.id === ws.trail[0].id && !rootPinned && !narrowWindow && !ws.trail[0].web) {
+    if (request.id === ws.trail[0].id && !rootPinned && !narrowWindow && !ws.trail[0].web && !ws.trail[0].doc) {
       handled.current = request.n;
       setRootPeek(true);
       return;
@@ -529,7 +531,7 @@ export function Columns() {
   // A web page read as a trail of pages is laid out the same way: its first page is one of the
   // columns, so that each page opened from a link takes the larger share and the one before it the
   // smaller, with earlier ones moving out of view.
-  const trailing = narrowWindow || !!root.web;
+  const trailing = narrowWindow || !!root.web || !!root.doc;
   const depths = [...(trailing ? [0] : []), ...ws.levels.map((l) => l.depth)];
   const rootShown = rootPinned || rootPeek;
   // A PDF needs room to be read: its root column starts at 60% of the width, and keeps its own size.

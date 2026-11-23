@@ -307,7 +307,7 @@ export function App() {
           updatedAt: t,
         };
         if (extra?.note) freshNotes.add(node.id);
-        if (extra?.opening) startWith(node.id, extra.opening, extra.file);
+        if (extra?.opening) startWith(node.id, extra.opening, extra.files);
         await putNode(node);
         const ids = [...idsTo(nodeId), node.id];
         setView((cur) => choosePath(cur, ids));

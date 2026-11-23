@@ -73,7 +73,7 @@ export interface Workspace {
    * Opens a branch on a text range: a chat with the model by default, a PDF to
    * read with `doc`, or a written annotation with `note`.
    */
-  branch(nodeId: string, messageId: string, start: number, end: number, quote: string, extra?: { doc?: DocRef; web?: { url: string }; color?: string; note?: boolean; opening?: string; file?: { name: string; type: string; data: ArrayBuffer } }): Promise<void>;
+  branch(nodeId: string, messageId: string, start: number, end: number, quote: string, extra?: { doc?: DocRef; web?: { url: string }; color?: string; note?: boolean; opening?: string; files?: { name: string; type: string; data: ArrayBuffer }[] }): Promise<void>;
   highlight(nodeId: string, messageId: string, start: number, end: number, quote: string, color: string): Promise<void>;
   updateHighlight(id: string, patch: Partial<Pick<Highlight, 'color' | 'deleted'>>): Promise<void>;
   setNote(nodeId: string, text: string): Promise<void>;
