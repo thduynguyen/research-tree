@@ -17,6 +17,8 @@ export interface Approval {
   input?: Record<string, unknown>;
   /** The folder the work happens in, to show files by their short names. */
   folder?: string;
+  /** Why this step is put to the user when ordinary ones are not, when the server says. */
+  risk?: string;
 }
 
 export interface StreamRequest {

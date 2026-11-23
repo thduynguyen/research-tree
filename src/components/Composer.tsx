@@ -88,6 +88,7 @@ const ACCESS: Record<string, string> = {
   ask: 'answer only',
   read: 'may read the project folder',
   approve: 'may change files and run commands, asking first',
+  safe: 'may change files and run commands, asking before risky ones',
   auto: 'may change files and run commands, without asking',
 };
 
@@ -195,7 +196,7 @@ function ChatComposer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean 
   const levels = model.provider === 'custom' ? settings.custom?.levels ?? [] : [];
   const access = node.access && levels.includes(node.access) ? node.access : 'ask';
 
-  const full = access === 'auto' || access === 'approve';
+  const full = access === 'auto' || access === 'approve' || access === 'safe';
   const approval = pendingApproval(node.id);
   // At the full levels the server's tool takes slash commands; typing "/" lists them.
   const [commands, setCommands] = useState<string[]>([]);
@@ -251,6 +252,7 @@ function ChatComposer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean 
       {approval && (
         <div className="approval" role="alertdialog" aria-label="Permission needed">
           <div className="approval-ask">Allow this step?</div>
+          {approval.risk && <div className="approval-risk">{approval.risk}</div>}
           <MessageText text={approval.summary} />
           <Change approval={approval} />
           <div className="composer-row approval-buttons">

@@ -369,6 +369,7 @@ h2, h3 { margin: 0; }
 /* A step waiting for the user's yes or no. */
 .approval { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--danger); border-radius: 8px; background: var(--panel); font-size: 13px; }
 .approval-ask { font-weight: 600; }
+.approval-risk { color: var(--danger); }
 .approval-what { overflow-wrap: anywhere; }
 .approval pre { margin: 6px 0 0; max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .approval summary { cursor: pointer; color: var(--muted); }

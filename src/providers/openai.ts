@@ -50,6 +50,7 @@ function client(base: () => string, keep: (id: string) => boolean) {
             tool: typeof approval.tool === 'string' ? approval.tool : undefined,
             input: approval.input && typeof approval.input === 'object' ? approval.input : undefined,
             folder: typeof approval.folder === 'string' ? approval.folder : undefined,
+            risk: typeof approval.risk === 'string' ? approval.risk : undefined,
           });
           continue;
         }
