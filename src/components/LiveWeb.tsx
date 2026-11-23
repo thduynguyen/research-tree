@@ -21,6 +21,8 @@ interface Browser extends HTMLElement {
   executeJavaScript<T = unknown>(code: string): Promise<T>;
   /** Types text at the cursor, as the keyboard would. */
   insertText(text: string): Promise<void>;
+  insertCSS(css: string): Promise<string>;
+  sendInputEvent(event: { type: 'keyDown' | 'keyUp' | 'char'; keyCode: string }): void;
 }
 
 /**
@@ -147,9 +149,10 @@ export const WEB_AGENTS: Record<string, { name: string; url: string }> = {
   gemini: { name: 'Gemini', url: 'https://gemini.google.com/app' },
 };
 const AGENT_KEY = 'rt.webAgent';
+/** The agent a selection is taken to: one of the web agents, or 'chat' for the app's own chat panel. */
 export const webAgent = () => {
   const saved = localStorage.getItem(AGENT_KEY) ?? 'claude';
-  return saved in WEB_AGENTS ? saved : 'claude';
+  return saved in WEB_AGENTS || saved === 'chat' ? saved : 'claude';
 };
 export const setWebAgent = (id: string) => localStorage.setItem(AGENT_KEY, id);
 
@@ -160,16 +163,30 @@ export function startWith(nodeId: string, text: string) {
   openingText.set(nodeId, text);
   void navigator.clipboard?.writeText(text).catch(() => undefined);
 }
-/** Puts the cursor in the page's message box, if it is there and empty, and says whether it did. */
+/** Puts the cursor in the page's message box, with anything already there selected so that typing replaces it, and says whether it did. */
 const FOCUS_BOX = `(() => {
   const seen = (el) => el.getBoundingClientRect().width > 20 && el.getBoundingClientRect().height > 10;
   const box =
     [...document.querySelectorAll('div.ProseMirror[contenteditable="true"], rich-textarea .ql-editor, div[contenteditable="true"][role="textbox"], div[contenteditable="true"]')].find(seen) ||
     [...document.querySelectorAll('textarea')].find(seen);
-  if (!box || (box.value ?? box.innerText).trim()) return false;
+  if (!box) return false;
   box.focus();
+  if (box.tagName === 'TEXTAREA') box.select();
+  else {
+    const all = document.createRange();
+    all.selectNodeContents(box);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(all);
+  }
   return true;
 })()`;
+
+/** Makes an agent's page sit in the app as one of its panels: on white, like the rest. */
+const AGENT_LOOK = `
+  html, body, #root, main { background: #ffffff !important; }
+  :root, [data-theme] { --bg-000: 0 0% 100% !important; --bg-100: 0 0% 100% !important; --bg-200: 0 0% 100% !important; }
+`;
 
 const STARTS = [
   ['Claude', 'https://claude.ai/'],
@@ -247,7 +264,10 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
         .executeJavaScript(IN_PAGE)
         .then(draw)
         .catch(() => undefined);
-      if (AGENT_SITE.test(el.getURL())) void el.executeJavaScript(FOLD_LIST).catch(() => undefined);
+      if (AGENT_SITE.test(el.getURL())) {
+        void el.executeJavaScript(FOLD_LIST).catch(() => undefined);
+        void el.insertCSS(AGENT_LOOK).catch(() => undefined);
+      }
       // A panel opened to ask about a passage starts with the passage in the agent's box, ready for the question.
       const opening = openingText.get(latest.current.id);
       if (opening && AGENT_SITE.test(el.getURL())) {
@@ -260,6 +280,9 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
               if (!(await el.executeJavaScript<boolean>(FOCUS_BOX))) continue;
               el.focus();
               await el.insertText(opening);
+              // Then it is sent, as the Enter key would.
+              await new Promise((done) => setTimeout(done, 600));
+              for (const type of ['keyDown', 'char', 'keyUp'] as const) el.sendInputEvent({ type, keyCode: 'Enter' });
               return;
             } catch {
               return; // the page went away
@@ -363,10 +386,13 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
     }
   };
 
+  // An agent's page is a conversation, not somewhere to browse from: it gets the whole panel.
+  const agentPage = begun && AGENT_SITE.test(typed || start);
   return (
     <div className="live-web">
       <form
         className="web-bar"
+        hidden={agentPage}
         onSubmit={(e) => {
           e.preventDefault();
           go(destination(typed));

@@ -169,14 +169,15 @@ export function Settings({ onClose, onPull, onPush, syncStatus }: Props) {
           <>
             <h3>Web agent</h3>
             <p className="hint">
-              In the desktop app, a selection can be taken to an agent's own web page, opened beside it with the passage
-              ready to ask about. Sign in to the agent once, in any web panel.
+              "Ask AI" on a selection opens this agent's own web page beside the passage and asks it about the passage.
+              Sign in to the agent once, in any web panel. The app's own chat panel keeps its answers in the session.
             </p>
             <div className="card-static">
               <div className="field-row">
-                <label htmlFor="web-agent"><strong>Ask on the web with</strong></label>
+                <label htmlFor="web-agent"><strong>Ask AI goes to</strong></label>
                 <select id="web-agent" defaultValue={webAgent()} onChange={(e) => setWebAgent(e.target.value)}>
-                  {Object.entries(WEB_AGENTS).map(([id, a]) => <option key={id} value={id}>{a.name}</option>)}
+                  {Object.entries(WEB_AGENTS).map(([id, a]) => <option key={id} value={id}>{a.name}, on the web</option>)}
+                  <option value="chat">The app's own chat panel</option>
                 </select>
               </div>
             </div>

@@ -1,7 +1,7 @@
 // Research Tree as a desktop app: the same interface in a window of its own, with real browser
 // panels inside it. The local helper, which gives the interface its terminal, files and git, is
 // started along with the app when it is not already running.
-const { app, BrowserWindow, session, shell } = require('electron');
+const { app, BrowserWindow, nativeTheme, session, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -38,6 +38,8 @@ async function startHelper() {
 }
 
 app.whenReady().then(async () => {
+  // The app is light for now, and so are the pages in its panels that follow the system's choice.
+  nativeTheme.themeSource = 'light';
   // Sites opened in panels keep their sign-ins between launches, apart from the app's own storage.
   const web = session.fromPartition('persist:web');
   web.setUserAgent(plainAgent(web.getUserAgent()));

@@ -71,6 +71,7 @@ export function SelectionPopover() {
   const [target, setTarget] = useState<Target | null>(null);
   const [color, setColor] = useState(() => localStorage.getItem(COLOR_KEY) ?? HIGHLIGHT_COLORS[0].value);
   const agent = webAgent();
+  const toWeb = isDesktop && agent in WEB_AGENTS;
 
   useEffect(() => {
     let timer = 0;
@@ -132,27 +133,23 @@ export function SelectionPopover() {
       <button className="btn" onMouseDown={hold} onClick={() => run(() => ws.branch(nodeId, messageId, start, end, quote, { color, note: true }))}>
         Note
       </button>
-      <button className="btn primary" onMouseDown={hold} onClick={() => run(() => ws.branch(nodeId, messageId, start, end, quote, { color }))}>
+      <button
+        className="btn primary"
+        title={toWeb ? `Open ${WEB_AGENTS[agent].name} beside this and ask it about the passage. Choose the agent in Settings.` : undefined}
+        onMouseDown={hold}
+        onClick={() =>
+          run(() => {
+            // In the desktop app the passage goes to the chosen agent's own page, which is asked about it at once.
+            if (!toWeb) return ws.branch(nodeId, messageId, start, end, quote, { color });
+            const from = ws.idx.byId.get(nodeId);
+            const source = from?.web?.url ?? from?.doc?.url ?? '';
+            const opening = `Explain this passage${from?.title ? ` from "${from.title}"` : ''}${source && /^https?:/.test(source) ? ` (${source})` : ''}: "${quote.replace(/\s+/g, ' ')}"`;
+            return ws.branch(nodeId, messageId, start, end, quote, { color, web: { url: WEB_AGENTS[agent].url }, opening });
+          })
+        }
+      >
         Ask AI
       </button>
-      {isDesktop && (
-        <button
-          className="btn"
-          title={`Open ${WEB_AGENTS[agent].name} beside this, with the passage ready to ask about. Choose the agent in Settings.`}
-          onMouseDown={hold}
-          onClick={() =>
-            run(() => {
-              // The agent is told what the passage is from, and is left for the reader to add the question.
-              const from = ws.idx.byId.get(nodeId);
-              const source = from?.web?.url ?? from?.doc?.url ?? '';
-              const opening = `About this passage${from?.title ? ` from "${from.title}"` : ''}${source && /^https?:/.test(source) ? ` (${source})` : ''}:\n\n"${quote}"\n\n`;
-              return ws.branch(nodeId, messageId, start, end, quote, { color, web: { url: WEB_AGENTS[agent].url }, opening });
-            })
-          }
-        >
-          Ask {WEB_AGENTS[agent].name}
-        </button>
-      )}
     </div>
   );
 }
