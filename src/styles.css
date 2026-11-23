@@ -339,6 +339,20 @@ h2, h3 { margin: 0; }
 .file-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
 .file-list li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .file-list .link { text-align: left; overflow-wrap: anywhere; }
+/* While the model works: a light going round the message box, and a line saying so. */
+@property --turn { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.composer.working { position: relative; }
+.composer.working textarea { border-color: transparent; background: linear-gradient(var(--panel), var(--panel)) padding-box, conic-gradient(from var(--turn), transparent 0 60%, var(--accent) 80%, #7aa2ff 90%, transparent 100%) border-box; border-width: 2px; border-style: solid; animation: turn 2.4s linear infinite; }
+@keyframes turn { to { --turn: 360deg; } }
+.working-line { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.working-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.working-time { font-variant-numeric: tabular-nums; }
+.spinner { flex: none; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .composer.working textarea, .spinner { animation: none; }
+  .composer.working textarea { border-color: var(--accent); background: var(--panel); }
+}
 /* A step waiting for the user's yes or no. */
 .approval { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--danger); border-radius: 8px; background: var(--panel); font-size: 13px; }
 .approval-ask { font-weight: 600; }

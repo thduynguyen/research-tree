@@ -13,6 +13,8 @@ interface LiveReply {
   approval?: Approval;
   /** What the model is doing while no text is coming. */
   status?: string;
+  /** When the question was sent, to show how long it has been. */
+  startedAt: number;
   /** Steps the user has said need no more asking, for the rest of this reply. */
   allowAll?: boolean;
   allowFiles?: Set<string>;
@@ -49,6 +51,12 @@ export const FILES_CHANGED = 'rt-files-changed';
 
 /** What a reply from the shell is labelled with, in place of a model. */
 const SHELL: ModelRef = { provider: 'custom', model: 'shell' };
+
+/** The reply in progress in this conversation, if any. */
+export function replyInProgress(nodeId: string): LiveReply | undefined {
+  for (const entry of live.values()) if (entry.nodeId === nodeId) return entry;
+  return undefined;
+}
 
 /** The step waiting for a yes or no in this conversation, if any. */
 export function pendingApproval(nodeId: string): Approval | undefined {
@@ -111,7 +119,7 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
 
   const controller = new AbortController();
   aborters.set(nodeId, controller);
-  const entry: LiveReply = { nodeId, text: '' };
+  const entry: LiveReply = { nodeId, text: '', startedAt: Date.now() };
   live.set(reply.id, entry);
   notify();
 

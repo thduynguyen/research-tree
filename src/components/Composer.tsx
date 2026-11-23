@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { answerApproval, fileOf, isBusy, pendingApproval, sendMessage, stop, useLive } from '../chat';
+import { answerApproval, fileOf, isBusy, pendingApproval, replyInProgress, sendMessage, stop, useLive } from '../chat';
 import type { Approval } from '../providers';
 import { lineDiff } from '../text';
 import { slashCommands } from '../folder';
@@ -57,6 +57,29 @@ function Change({ approval }: { approval: Approval }) {
           ))}
         </pre>
       ))}
+    </div>
+  );
+}
+
+// Said in turn while the model works, so that a long wait visibly moves.
+const WORKING = ['Working', 'Thinking it through', 'Reading', 'Putting it together', 'Still at it', 'Checking details', 'Making progress', 'Almost certainly not stuck'];
+
+/** Shown while a reply is on its way: that the model is working, on what if known, and for how long. */
+function Working({ nodeId }: { nodeId: string }) {
+  const reply = replyInProgress(nodeId);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  if (!reply) return null;
+  const seconds = Math.max(0, Math.round((Date.now() - reply.startedAt) / 1000));
+  const phrase = WORKING[Math.floor(seconds / 6) % WORKING.length];
+  return (
+    <div className="working-line" role="status">
+      <span className="spinner" aria-hidden="true" />
+      <span className="working-what">{reply.approval ? 'Waiting for your answer' : reply.status ?? `${phrase}…`}</span>
+      <span className="working-time">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>
     </div>
   );
 }
@@ -198,12 +221,13 @@ function ChatComposer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean 
 
   return (
     <form
-      className="composer"
+      className={busy ? 'composer working' : 'composer'}
       onSubmit={(e) => {
         e.preventDefault();
         send();
       }}
     >
+      {busy && <Working nodeId={node.id} />}
       {approval && (
         <div className="approval" role="alertdialog" aria-label="Permission needed">
           <div className="approval-ask">Allow this step?</div>
