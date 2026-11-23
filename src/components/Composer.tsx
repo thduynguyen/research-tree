@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { answerApproval, fileOf, isBusy, pendingApproval, replyInProgress, sendMessage, stop, useLive } from '../chat';
+import { answerApproval, fileOf, isBusy, pendingApproval, queueMessage, queuedFor, replyInProgress, sendMessage, steer, stop, unqueue, useLive } from '../chat';
 import type { Approval } from '../providers';
 import { lineDiff } from '../text';
 import { slashCommands } from '../folder';
@@ -212,11 +212,21 @@ function ChatComposer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean 
     input.current?.focus();
   };
 
+  const waiting = queuedFor(node.id);
+  // While a reply is coming, a new message waits its turn: it is sent when the reply ends.
   const send = () => {
     const value = text.trim();
-    if (!value || busy) return;
+    if (!value) return;
     setText('');
-    void sendMessage(node.id, value, model);
+    if (busy) queueMessage(node.id, value, model);
+    else void sendMessage(node.id, value, model);
+  };
+  // Or it is handed to the model now, to take up at its next step. If nothing can take it, it waits its turn.
+  const steerNow = async () => {
+    const value = text.trim();
+    if (!value) return;
+    setText('');
+    if (!(await steer(node.id, value))) queueMessage(node.id, value, model);
   };
 
   return (
@@ -228,6 +238,16 @@ function ChatComposer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean 
       }}
     >
       {busy && <Working nodeId={node.id} />}
+      {waiting.length > 0 && (
+        <ul className="queue" aria-label="Messages waiting to be sent">
+          {waiting.map((item, i) => (
+            <li key={i}>
+              <span>{item.text}</span>
+              <button type="button" className="link" aria-label="Remove this message from the queue" onClick={() => unqueue(node.id, i)}>✕</button>
+            </li>
+          ))}
+        </ul>
+      )}
       {approval && (
         <div className="approval" role="alertdialog" aria-label="Permission needed">
           <div className="approval-ask">Allow this step?</div>
@@ -337,9 +357,19 @@ function ChatComposer({ node, autoFocus }: { node: TreeNode; autoFocus: boolean 
           <option value={encode(DEMO_MODEL)}>Demo (no AI)</option>
         </select>
         {busy ? (
-          <button type="button" className="btn" onClick={() => stop(node.id)}>
-            Stop
-          </button>
+          <>
+            <button type="submit" className="btn" disabled={!text.trim()} title="Send this when the reply in progress ends (Enter)">
+              Queue
+            </button>
+            {full && (
+              <button type="button" className="btn" disabled={!text.trim()} title="Hand this to the model now; it takes it up at its next step" onClick={() => void steerNow()}>
+                Steer
+              </button>
+            )}
+            <button type="button" className="btn" onClick={() => stop(node.id)}>
+              Stop
+            </button>
+          </>
         ) : (
           <button type="submit" className="btn primary" disabled={!text.trim()}>
             Send

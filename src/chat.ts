@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { db, putMessage, putNode, putSession, uid } from './db';
-import { answerStep, hasFolder, runCommand } from './folder';
+import { answerStep, hasFolder, runCommand, steerRun } from './folder';
 import { providers, type Approval } from './providers';
 import { findModel, getSettings, isReady, updateSettings } from './settings';
 import { SYSTEM_PROMPT, buildContext, buildIndex, shorten } from './tree';
@@ -51,6 +51,36 @@ export const FILES_CHANGED = 'rt-files-changed';
 
 /** What a reply from the shell is labelled with, in place of a model. */
 const SHELL: ModelRef = { provider: 'custom', model: 'shell' };
+
+// Messages written while a reply was coming, waiting their turn, by conversation.
+const queued = new Map<string, { text: string; model: ModelRef }[]>();
+export const queuedFor = (nodeId: string) => queued.get(nodeId) ?? [];
+export function queueMessage(nodeId: string, text: string, model: ModelRef) {
+  queued.set(nodeId, [...queuedFor(nodeId), { text, model }]);
+  notify();
+}
+export function unqueue(nodeId: string, index: number) {
+  queued.set(nodeId, queuedFor(nodeId).filter((_, i) => i !== index));
+  notify();
+}
+
+/**
+ * Adds a message to the reply in progress, for a server whose tool can take one while it works:
+ * the model takes it up at its next step. Says whether it was taken.
+ */
+export async function steer(nodeId: string, text: string): Promise<boolean> {
+  const reply = replyInProgress(nodeId);
+  if (!reply) return false;
+  try {
+    await steerRun(nodeId, text);
+  } catch {
+    return false;
+  }
+  // Shown in the reply, at the point it was said.
+  reply.text += `\n\n> **You, while it worked:** ${text.replace(/\n+/g, ' ')}\n\n`;
+  notify();
+  return true;
+}
 
 /** The reply in progress in this conversation, if any. */
 export function replyInProgress(nodeId: string): LiveReply | undefined {
@@ -214,5 +244,8 @@ export async function sendMessage(nodeId: string, text: string, model: ModelRef)
     live.delete(reply.id);
     aborters.delete(nodeId);
     notify();
+    // A message queued while this reply was coming is sent now. Stopping a reply holds the queue.
+    const next = controller.signal.aborted ? undefined : queued.get(nodeId)?.shift();
+    if (next) void sendMessage(nodeId, next.text, next.model);
   }
 }

@@ -359,6 +359,9 @@ export function connectToHost(): Promise<void> {
   return connecting;
 }
 
+/** Hands the model at work in a conversation one more message. */
+export const steerRun = (session: string, message: string) => call<{ ok: boolean }>('steer', { session, message });
+
 /** Answers a step the server asked about. */
 export const answerStep = (id: string, allow: boolean) => call<{ ok: boolean }>('approve', { id, allow });
 

@@ -361,6 +361,11 @@ h2, h3 { margin: 0; }
   .composer.working textarea, .spinner { animation: none; }
   .composer.working textarea { border-color: var(--accent); background: var(--panel); }
 }
+/* Messages written while a reply was coming, waiting their turn. */
+.queue { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.queue li { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
+.queue li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue li::before { content: 'queued'; flex: none; font-size: 11px; }
 /* A step waiting for the user's yes or no. */
 .approval { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--danger); border-radius: 8px; background: var(--panel); font-size: 13px; }
 .approval-ask { font-weight: 600; }
