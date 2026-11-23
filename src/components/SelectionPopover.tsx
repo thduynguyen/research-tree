@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { pageOf } from '../types';
 import { useWorkspace } from '../workspace';
+import { db } from '../db';
 import { WEB_AGENTS, isDesktop, webAgent } from './LiveWeb';
 import { HIGHLIGHT_COLORS } from './PdfView';
 
@@ -138,13 +139,24 @@ export function SelectionPopover() {
         title={toWeb ? `Open ${WEB_AGENTS[agent].name} beside this and ask it about the passage. Choose the agent in Settings.` : undefined}
         onMouseDown={hold}
         onClick={() =>
-          run(() => {
+          run(async () => {
             // In the desktop app the passage goes to the chosen agent's own page, which is asked about it at once.
             if (!toWeb) return ws.branch(nodeId, messageId, start, end, quote, { color });
-            const from = ws.idx.byId.get(nodeId);
-            const source = from?.web?.url ?? from?.doc?.url ?? '';
-            const opening = `Explain this passage${from?.title ? ` from "${from.title}"` : ''}${source && /^https?:/.test(source) ? ` (${source})` : ''}: "${quote.replace(/\s+/g, ' ')}"`;
-            return ws.branch(nodeId, messageId, start, end, quote, { color, web: { url: WEB_AGENTS[agent].url }, opening });
+            // The agent is given what the passage is from, whole: the PDF itself, or the page's text.
+            let source = ws.idx.byId.get(nodeId);
+            while (source && !source.doc && !source.web && source.parentId) source = ws.idx.byId.get(source.parentId);
+            const title = source?.doc?.title ?? source?.web?.title ?? source?.title ?? '';
+            const link = source?.web?.url ?? source?.doc?.url ?? '';
+            const kept = source?.doc?.fingerprint ? await db.files.get(source.doc.fingerprint) : source?.web?.url ? await db.files.get(`web:${source.web.url}`) : undefined;
+            const safe = (title || 'document').replace(/[^\p{L}\p{N} ._-]/gu, ' ').trim().slice(0, 60) || 'document';
+            const file = kept?.data?.byteLength
+              ? { name: `${safe}.pdf`, type: 'application/pdf', data: kept.data }
+              : kept?.text?.length
+                ? { name: `${safe}.txt`, type: 'text/plain', data: new TextEncoder().encode(`${title}\n${link}\n\n${kept.text.join('\n\n')}`).buffer as ArrayBuffer }
+                : undefined;
+            const about = `${title ? ` from "${title}"` : ''}${/^https?:/.test(link) ? ` (${link})` : ''}`;
+            const opening = `${file ? `The attached file is the ${file.type === 'application/pdf' ? 'paper' : 'page'} I am reading. ` : ''}Explain this passage${about}: "${quote.replace(/\s+/g, ' ')}"`;
+            return ws.branch(nodeId, messageId, start, end, quote, { color, web: { url: WEB_AGENTS[agent].url }, opening, file });
           })
         }
       >

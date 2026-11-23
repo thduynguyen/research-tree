@@ -156,13 +156,45 @@ export const webAgent = () => {
 };
 export const setWebAgent = (id: string) => localStorage.setItem(AGENT_KEY, id);
 
-// Text waiting to be put into an agent's box when its panel's page is up, by panel.
-const openingText = new Map<string, string>();
-/** Notes the text a new agent panel should start with. It is also put on the clipboard, in case the box cannot be filled. */
-export function startWith(nodeId: string, text: string) {
-  openingText.set(nodeId, text);
-  void navigator.clipboard?.writeText(text).catch(() => undefined);
+/** What an agent is given along with the question: the paper or page the passage is from, as a file. */
+export interface Attachment {
+  name: string;
+  type: string;
+  data: ArrayBuffer;
 }
+
+// What a new agent panel starts with, waiting for its page to be up, by panel.
+const opening = new Map<string, { text: string; file?: Attachment }>();
+/** Notes the message, and the file to go with it, that a new agent panel should send. */
+export function startWith(nodeId: string, text: string, file?: Attachment) {
+  opening.set(nodeId, { text, file });
+}
+
+const base64 = (data: ArrayBuffer) => {
+  const bytes = new Uint8Array(data);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(out);
+};
+/** Hands the page's message box a file, the way pasting one does. Says whether the page took the paste. */
+const pasteFile = (file: Attachment) => `(() => {
+  const raw = atob(${JSON.stringify(base64(file.data))});
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const carried = new DataTransfer();
+  carried.items.add(new File([bytes], ${JSON.stringify(file.name)}, { type: ${JSON.stringify(file.type)} }));
+  const box = document.activeElement || document.body;
+  return !box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: carried, bubbles: true, cancelable: true }));
+})()`;
+/** How much is written in the page's message box. */
+const BOX_LENGTH = `(() => {
+  const seen = (el) => el.getBoundingClientRect().width > 20 && el.getBoundingClientRect().height > 10;
+  const box =
+    [...document.querySelectorAll('div.ProseMirror[contenteditable="true"], rich-textarea .ql-editor, div[contenteditable="true"][role="textbox"], div[contenteditable="true"]')].find(seen) ||
+    [...document.querySelectorAll('textarea')].find(seen);
+  return box ? (box.value ?? box.innerText).trim().length : -1;
+})()`;
+
 /** Puts the cursor in the page's message box, with anything already there selected so that typing replaces it, and says whether it did. */
 const FOCUS_BOX = `(() => {
   const seen = (el) => el.getBoundingClientRect().width > 20 && el.getBoundingClientRect().height > 10;
@@ -217,6 +249,9 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
   // The address the browser starts at. Later moves happen inside it and are only recorded.
   const [start] = useState(node.web?.url ?? '');
   const [begun, setBegun] = useState(!!start);
+  // Where the browser is first pointed. It must not follow the page's address afterwards: the
+  // browser moves by itself, and being pointed again at where it already is would reload it.
+  const [first, setFirst] = useState(start);
   const [typed, setTyped] = useState(start);
   const [, redraw] = useState(0);
   const latest = useRef(node);
@@ -269,24 +304,35 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
         void el.insertCSS(AGENT_LOOK).catch(() => undefined);
       }
       // A panel opened to ask about a passage starts with the passage in the agent's box, ready for the question.
-      const opening = openingText.get(latest.current.id);
-      if (opening && AGENT_SITE.test(el.getURL())) {
-        openingText.delete(latest.current.id);
-        // The box appears a moment after the page: it is looked for until found, then typed into, not sent.
+      const begin = opening.get(latest.current.id);
+      if (begin && AGENT_SITE.test(el.getURL())) {
+        opening.delete(latest.current.id);
+        const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+        // The box appears a moment after the page: it is looked for until found. Then the file is
+        // handed over, the message typed, and Enter pressed. A site does not send while a file is
+        // still going up, so Enter is pressed again until the box has emptied.
         void (async () => {
-          for (let tries = 0; tries < 24; tries++) {
-            await new Promise((done) => setTimeout(done, 500));
-            try {
-              if (!(await el.executeJavaScript<boolean>(FOCUS_BOX))) continue;
-              el.focus();
-              await el.insertText(opening);
-              // Then it is sent, as the Enter key would.
-              await new Promise((done) => setTimeout(done, 600));
-              for (const type of ['keyDown', 'char', 'keyUp'] as const) el.sendInputEvent({ type, keyCode: 'Enter' });
-              return;
-            } catch {
-              return; // the page went away
+          try {
+            for (let tries = 0; tries < 24; tries++) {
+              await pause(500);
+              if (await el.executeJavaScript<boolean>(FOCUS_BOX)) break;
+              if (tries === 23) return;
             }
+            el.focus();
+            if (begin.file) {
+              await el.executeJavaScript(pasteFile(begin.file));
+              await pause(2500);
+              await el.executeJavaScript(FOCUS_BOX);
+              el.focus();
+            }
+            await el.insertText(begin.text);
+            for (let tries = 0; tries < 12; tries++) {
+              await pause(tries ? 2000 : 700);
+              if ((await el.executeJavaScript<number>(BOX_LENGTH)) <= 0) return;
+              for (const type of ['keyDown', 'char', 'keyUp'] as const) el.sendInputEvent({ type, keyCode: 'Enter' });
+            }
+          } catch {
+            // The page went away.
           }
         })();
       }
@@ -375,6 +421,7 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
     setTyped(url);
     if (!begun) {
       void putNode({ ...latest.current, web: { url } });
+      setFirst(url);
       setBegun(true);
     } else void view.current?.loadURL(url);
   };
@@ -411,7 +458,7 @@ export function LiveWeb({ node, marks, onOpen, onHighlight }: Props) {
       )}
       {begun ? (
         // The browser's sign-ins are kept in a store of their own, shared by all web panels.
-        createElement('webview', { ref: view, className: 'live-web-view', src: latest.current.web?.url || start, partition: 'persist:web', allowpopups: 'true' })
+        createElement('webview', { ref: view, className: 'live-web-view', src: first, partition: 'persist:web', allowpopups: 'true' })
       ) : (
         <div className="live-web-start">
           <p className="hint">Type an address or a search above, or start from one of these.</p>
